@@ -35,19 +35,17 @@ On a computer: arrow keys, Enter, Esc for Back, and the R, G, Y and B keys for t
 
 ## Putting it on the TV
 
-Same routine as Friday Night Video.
+The files are already in this repository.
 
-1. On GitHub, make a new **public** repository called `saturday-night-karaoke`.
-2. Upload `index.html`, `package.json`, `release.json`, `README.md` and the whole `app` folder. Commit to `main`.
-3. Publish a release: **Releases → Draft a new release**, tag `v1`, title `0.2.0`, **Publish release**. Do this after the upload.
-4. On the TV, open TizenBrew, add a GitHub module and type `timmydouglas98-netizen/saturday-night-karaoke@v1`.
-5. Launch **Saturday Night Karaoke**.
+1. Switch on the phone page (see "One-time set-up: switch on the phone page" below).
+2. On the TV, open TizenBrew, add a GitHub module and type `timmydouglas98-netizen/saturday-night-karaoke`.
+3. Launch **Saturday Night Karaoke**.
 
 To check the version, ring the bell on the counter. The bottom line should read **Version 0.2.0**.
 
 ### Later updates
 
-Upload the new `app/bar.html`, publish the next tag (`v2`), then change `ref` in `release.json` to `v2` and `version` to match. The TV picks it up next time it opens. You don't need to touch TizenBrew again.
+Upload the new `app/bar.html` and commit it. Then edit `release.json`: set `ref` to that commit's full id (the long code on the commit's page) and `version` to match. The TV picks it up next time it opens. You don't need to touch TizenBrew again. A release tag such as `v2` works in `ref` too.
 
 ## Phone requests
 
