@@ -46,3 +46,5 @@ phone = (read("phone.html") + "<script>\n/* tweetnacl-js (public domain) */\n" +
          + read("book.js") + "\n" + read("relay.js") + "\n" + read("phone.js") + "\n})();\n</script>\n</body>\n</html>\n")
 (root / "index.html").write_text(phone, encoding="utf-8")
 print("index.html (phone)", len(phone), "bytes")
+(root / "player.html").write_text(read("player.html"), encoding="utf-8")
+print("player.html (jukebox)")

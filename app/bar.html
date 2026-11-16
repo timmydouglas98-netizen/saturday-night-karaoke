@@ -3398,7 +3398,7 @@ var qrcode = function() {
   }
 
 // ===== the bar =====
-  var APP_VERSION = "0.2.1", APP_DATE = "16 Nov 2026";
+  var APP_VERSION = "0.2.2", APP_DATE = "16 Nov 2026";
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function clip(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
@@ -4005,11 +4005,25 @@ var qrcode = function() {
   // YouTube, heard and not seen: the picture sits behind the painted window.
   // The player normally reports back (playing, paused, the time). Some TVs never pass those reports on, so if the
   // player stays silent the bar keeps time on its own clock instead of giving up on a tape that is playing fine.
+  // YouTube refuses to play embedded videos for a page that doesn't say which website it's on, and apps on a
+  // Samsung TV don't say. So the tape plays inside the jukebox page on the bar's website (player.html), which does.
+  // If that page can't be reached, the bar falls back to playing YouTube directly.
+  function jukeboxURL() { return store.get("snk-player-url", "") || phoneBase().replace(/index\.html$/, "") + "player.html"; }
+  function urlOrigin(u) { var m = /^(https?:\/\/[^\/]+)/.exec(u); return m ? m[1] : ""; }
   function ytPlayer(id, h, songDur) {
-    var p = { kind: "yt", t0: 0, at: 0, state: -1, dur: 0, dead: false, got: false, blind: false, paused: false };
+    var p = { kind: "yt", t0: 0, at: 0, state: -1, dur: 0, dead: false, got: false, blind: false, paused: false, wrapped: true, wrapOK: false };
     var org = /^https?:\/\//.test(location.origin || "") ? "&origin=" + enc(location.origin) : "";
-    $("ytBox").innerHTML = '<iframe id="ytF" tabindex="-1" title="Music" allow="autoplay; encrypted-media" src="https://www.youtube-nocookie.com/embed/' + enc(id) + '?autoplay=1&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&enablejsapi=1' + org + '"></iframe>';
+    var direct = "https://www.youtube-nocookie.com/embed/" + enc(id) + "?autoplay=1&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&enablejsapi=1" + org;
+    var wrapURL = jukeboxURL(), wrapOrigin = urlOrigin(wrapURL), useWrap = !!wrapOrigin && !store.get("snk-nowrap", false);
+    p.wrapped = useWrap;
+    $("ytBox").innerHTML = '<iframe id="ytF" tabindex="-1" title="Music" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin" src="' + esc(useWrap ? wrapURL + "#v=" + id : direct) + '"></iframe>';
     var fr = $("ytF"), made = performance.now(), loadedAt = 0, endT = null;
+    // the jukebox page says hello as soon as it loads; if it hasn't in 7 seconds, play YouTube directly instead
+    var wrapT = useWrap ? setTimeout(function () {
+      if (p.dead || p.wrapOK || p.got) return;
+      p.wrapped = false; loadedAt = 0; fr.src = direct;
+      clearTimeout(blindT); clearTimeout(dog); blindT = setTimeout(goBlind, 9000); dog = setTimeout(function () { if (!p.dead && !p.everPlayed) h.error("stall"); }, 25000);
+    }, 7000) : null;
     function post(m) { try { fr.contentWindow.postMessage(JSON.stringify(m), "*"); } catch (e) {} }
     function cmd(f, a) { post({ event: "command", func: f, args: a || [] }); }
     var hello = setInterval(function () { if (p.dead || p.got) return clearInterval(hello); post({ event: "listening", id: 1, channel: "widget" }); }, 400);
@@ -4026,9 +4040,12 @@ var qrcode = function() {
     }
     function schedEnd() { clearTimeout(endT); if (!p.blind || p.paused) return; var left = (songDur || 240) + 2 - p.time(); endT = setTimeout(function () { if (!p.dead) h.ended(); }, Math.max(1, left) * 1000); }
     function onMsg(e) {
-      if (p.dead || e.source !== fr.contentWindow || !/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(String(e.origin))) return;
+      if (p.dead || e.source !== fr.contentWindow) return;
+      var from = String(e.origin);
+      if (!(/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(from) || (p.wrapped && from === wrapOrigin))) return;
       var d = e.data; try { d = typeof d === "string" ? JSON.parse(d) : d; } catch (x) { return; }
       if (!d) return;
+      if (d.event === "snk-wrap-ready") { p.wrapOK = true; clearTimeout(wrapT); return; }
       if (!p.got) { p.got = true; if (p.blind) { p.blind = false; clearTimeout(endT); } }
       if (d.event === "onError") { clearTimeout(dog); clearTimeout(blindT); return h.error(d.info); }
       if (d.event === "onReady" || d.event === "initialDelivery") cmd("playVideo");
@@ -4053,7 +4070,7 @@ var qrcode = function() {
     p.pause = function () { cmd("pauseVideo"); if (p.blind) { p.t0 = p.time(); p.state = 2; p.paused = true; clearTimeout(endT); } };
     p.resume = function () { cmd("playVideo"); if (p.blind) { p.at = performance.now(); p.state = 1; p.paused = false; schedEnd(); } };
     p.seek = function (d) { var t = Math.max(0, p.time() + d); p.t0 = t; p.at = performance.now(); cmd("seekTo", [t, true]); schedEnd(); };
-    p.stop = function () { p.dead = true; clearInterval(hello); clearTimeout(dog); clearTimeout(blindT); clearTimeout(endT); window.removeEventListener("message", onMsg); $("ytBox").innerHTML = ""; };
+    p.stop = function () { p.dead = true; clearTimeout(wrapT); clearInterval(hello); clearTimeout(dog); clearTimeout(blindT); clearTimeout(endT); window.removeEventListener("message", onMsg); $("ytBox").innerHTML = ""; };
     return p;
   }
   // the house song: written for the bar, played by a little synth so it needs no internet and no key
@@ -4115,8 +4132,8 @@ var qrcode = function() {
   }
   function beginSong(d) {
     S.lines = d.lyr.lines; S.synced = d.lyr.synced; S.dur = d.lyr.dur; S.vids = d.vids || [];
-    S.why = [];
-    var h = { playing: onPlaying, ended: function () { finishSong(true); }, error: function (code) { if (!S) return; if (!S.loading) return finishSong(false); S.why.push(code); if (S.player) S.player.stop(); S.vi++; tryVideo(); } };
+    S.why = []; S.wrapNote = "";
+    var h = { playing: onPlaying, ended: function () { finishSong(true); }, error: function (code) { if (!S) return; if (!S.loading) return finishSong(false); S.why.push(code + (S.player && S.player.kind === "yt" ? (S.player.wrapped ? (S.player.wrapOK ? "" : "?") : "!") : "")); if (S.player) S.player.stop(); S.vi++; tryVideo(); } };
     S.h = h;
     if (S.q.song.house) S.player = housePlayer(h); else tryVideo();
   }
@@ -4139,9 +4156,12 @@ var qrcode = function() {
     clearInterval(tickT); tickT = setInterval(tick, 42);
   }
   function whyText(code) {
-    var c = String(code);
-    if (c === "101" || c === "150" || c === "152") return "the owner won't let it play outside YouTube";
-    if (c === "153") return "YouTube wanted to know where it was playing (error 153)";
+    var c = String(code), how = /[!?]$/.test(c) ? c.slice(-1) : ""; c = how ? c.slice(0, -1) : c;
+    return whyText1(c) + (how === "!" ? ", played directly" : how === "?" ? ", jukebox page didn't answer" : "");
+  }
+  function whyText1(c) {
+    if (c === "101" || c === "150") return "YouTube wouldn't play it here (" + c + ")";
+    if (c === "152" || c === "153") return "YouTube couldn't tell where it was playing (" + c + ")";
     if (c === "100") return "it's been taken down";
     if (c === "5") return "the TV couldn't play it (error 5)";
     if (c === "2") return "YouTube didn't like the request (error 2)";

@@ -104,6 +104,7 @@ The lyric timings match the original record. "With the band" plays that record, 
 ## Files
 
 - `index.html`: the phone songbook, served by GitHub Pages.
+- `player.html`: the jukebox. The TV plays YouTube through this page, because YouTube only plays embedded videos for a page on a real website, and apps on a Samsung TV don't count. It needs GitHub Pages switched on, like the phone songbook.
 - `app/bar.html`: the whole bar in one file. It opens in any browser.
 - `app/index.html`: the loader TizenBrew opens. It shows the sign while it fetches the bar and keeps the last good copy if an update fails.
 - `release.json`: which release the TVs run.
