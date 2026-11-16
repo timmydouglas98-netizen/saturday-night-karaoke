@@ -137,6 +137,8 @@ body { font-family: var(--f-ui); color: var(--ink); -webkit-user-select: none; u
 
 /* ---------- the stage ---------- */
 #scSing { background: #0a0d2c; }
+#chkLamp { position: absolute; left: 50%; width: 170px; height: 170px; margin-left: -85px; background: #463e58; border: 10px solid #3a3840; box-shadow: 10px 10px 0 rgba(14,12,22,.75); }
+#chkLamp.on { background: #ecba48; }
 #lyCv { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; pointer-events: none; }
 #dimmer { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #07040c; opacity: 0; pointer-events: none; z-index: 89; transition: opacity 1.5s; }
 #ytBox { position: absolute; left: 640px; top: 360px; width: 640px; height: 360px; }

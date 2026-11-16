@@ -132,7 +132,7 @@
     });
     var y = Math.round((PIX.H - total) / 2) - (ring ? 6 : 0), cols = [], ringC = null;
     rows.forEach(function (r) {
-      y += r.L.gap || 0;
+      y += r.L.gap || 0; r.y = y;
       t.font = "bold " + r.L.size + "px " + PIX.FAM; t.fillStyle = "#fff"; t.textBaseline = "alphabetic";
       t.fillText(r.txt, Math.round((PIX.W - t.measureText(r.txt).width) / 2), y + Math.round(r.h * .78));
       for (var yy = y; yy < y + r.h; yy++) cols[yy] = r.L.col;
@@ -153,4 +153,5 @@
     ctx.clearRect(0, 0, display.width, display.height);
     ctx.imageSmoothingEnabled = false; ctx.webkitImageSmoothingEnabled = false;
     ctx.drawImage(tmp, 0, 0, PIX.W, PIX.H, 0, 0, PIX.W * PIX.P, PIX.H * PIX.P);
+    return rows.map(function (r) { return { y: r.y * PIX.P, h: r.h * PIX.P }; });
   }

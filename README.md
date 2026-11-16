@@ -4,7 +4,7 @@ The karaoke bar next door to Friday Night Video, built to run on a Samsung TV th
 
 You walk in off a wet street, flick through the songbook on the counter, hand Rhonda a request slip, and sing with the words lit up over a rainy city window. The music plays from YouTube (heard, not seen). The words come from LRCLIB, a free lyrics library.
 
-This is version 0.4.0.
+This is version 0.5.0.
 
 ## What's in it
 
@@ -98,6 +98,13 @@ Good to know:
 - Google may change the names of those menus. The goal is always the same: a project, the YouTube Data API v3 switched on, and an API key.
 
 ## When the words and the music don't line up
+
+**Do the sound check first, once.** A soundbar (or any speaker connected through the TV) plays sound a fraction of a second after the picture. Ring the bell → **Sound check**: a click plays on a steady beat while a lamp flashes. Press left or right until the flash lands right on the click you hear, then OK. Every song then waits that long for your speakers.
+
+How the bar times the words: each line's start time comes from LRCLIB. Some songs there also have a time for every word; those are used when they exist, and the screen says "TIMED WORD BY WORD" as the song starts. For the rest, each line's time is shared across its words.
+
+For the backing track, the bar prefers the record company's own instrumental (from the artist's official YouTube channel), because that's the actual record minus the vocals and lines up exactly with the lyric timings. Re-recorded karaoke versions come next.
+
 
 The lyric timings match the original record. "With the band" plays that record, so it lines up. A backing track is someone's re-recording, so it can sit a little early or late.
 

@@ -154,6 +154,8 @@ body { font-family: var(--f-ui); color: var(--ink); -webkit-user-select: none; u
 
 /* ---------- the stage ---------- */
 #scSing { background: #0a0d2c; }
+#chkLamp { position: absolute; left: 50%; width: 170px; height: 170px; margin-left: -85px; background: #463e58; border: 10px solid #3a3840; box-shadow: 10px 10px 0 rgba(14,12,22,.75); }
+#chkLamp.on { background: #ecba48; }
 #lyCv { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; pointer-events: none; }
 #dimmer { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #07040c; opacity: 0; pointer-events: none; z-index: 89; transition: opacity 1.5s; }
 #ytBox { position: absolute; left: 640px; top: 360px; width: 640px; height: 360px; }
@@ -310,6 +312,7 @@ body { font-family: var(--f-ui); color: var(--ink); -webkit-user-select: none; u
     <div id="lyBreak" class="inked" hidden>♪ &nbsp; ♪ &nbsp; ♪</div>
     <div id="ly" hidden><div id="lyDots"></div><div id="lyNow"></div><div id="lyNext"></div></div>
     <canvas id="lyCv" width="1920" height="1080"></canvas>
+    <div id="chkLamp" hidden></div>
     <div id="osd"></div><div id="osdR"></div>
     <div class="hint" id="sgHint"></div>
     <div id="cue" hidden><div class="cue-card"><div class="k" id="cueK"></div><div class="t" id="cueT"></div><div class="s" id="cueS"></div></div></div>
@@ -3545,7 +3548,7 @@ var qrcode = function() {
     });
     var y = Math.round((PIX.H - total) / 2) - (ring ? 6 : 0), cols = [], ringC = null;
     rows.forEach(function (r) {
-      y += r.L.gap || 0;
+      y += r.L.gap || 0; r.y = y;
       t.font = "bold " + r.L.size + "px " + PIX.FAM; t.fillStyle = "#fff"; t.textBaseline = "alphabetic";
       t.fillText(r.txt, Math.round((PIX.W - t.measureText(r.txt).width) / 2), y + Math.round(r.h * .78));
       for (var yy = y; yy < y + r.h; yy++) cols[yy] = r.L.col;
@@ -3566,10 +3569,11 @@ var qrcode = function() {
     ctx.clearRect(0, 0, display.width, display.height);
     ctx.imageSmoothingEnabled = false; ctx.webkitImageSmoothingEnabled = false;
     ctx.drawImage(tmp, 0, 0, PIX.W, PIX.H, 0, 0, PIX.W * PIX.P, PIX.H * PIX.P);
+    return rows.map(function (r) { return { y: r.y * PIX.P, h: r.h * PIX.P }; });
   }
 
 // ===== the bar =====
-  var APP_VERSION = "0.4.0", APP_DATE = "16 Nov 2026";
+  var APP_VERSION = "0.5.0", APP_DATE = "16 Nov 2026";
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function clip(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
@@ -3596,6 +3600,8 @@ var qrcode = function() {
   };
   if (!LIGHTS[prefs.lights]) prefs.lights = "evening";
   if (typeof prefs.fair !== "boolean") prefs.fair = true;
+  // how long the sound takes to come out of the speakers after the picture (a soundbar adds a little)
+  if (typeof prefs.lag !== "number" || !(Math.abs(prefs.lag) < 2)) prefs.lag = 0;
   if (prefs.screen !== "classic") prefs.screen = "window";
   function applyLights() { var el = document.getElementById("dimmer"); if (el) el.style.opacity = String(LIGHTS[prefs.lights].lvl()); }
   function savePrefs() { store.set("snk-prefs", prefs); }
@@ -4104,6 +4110,7 @@ var qrcode = function() {
     h += '<div class="opt f" data-act="d-screen">Stage screen<span>' + (prefs.screen === "classic" ? "Classic blue" : "Rainy window") + "</span></div>";
     h += '<div class="opt f" data-act="d-big">Words on the stage screen<span>' + (prefs.big ? "Extra big" : "Big") + "</span></div>";
     h += '<div class="opt f" data-act="d-fair">Turns<span>' + (prefs.fair ? "Fair: everyone gets a go first" : "In the order slips arrive") + "</span></div>";
+    h += '<div class="opt f" data-act="d-check">Sound check<span>' + lagText() + "</span></div>";
     h += '<div class="opt f" data-act="d-key">Jukebox key<span>' + (prefs.ytKey ? "Set (ends " + esc(prefs.ytKey.slice(-4)) + ")" : "Not set — only the house song plays") + "</span></div>";
     h += '<div class="opt f" data-act="d-house">Try the house song<span>No set-up needed</span></div>';
     h += '<div class="opt f" data-act="d-names">Singers’ names<span>' + (prefs.singers.length ? esc(prefs.singers.join(", ")) : "None saved") + "</span></div>";
@@ -4114,6 +4121,7 @@ var qrcode = function() {
   ACT["d-name"] = function () { openBoard({ label: "The name on the sign", value: prefs.barName, max: 32, done: function (v) { if (v) { prefs.barName = v; savePrefs(); outPainted = 0; } openDesk("d-name"); }, cancel: function () { openDesk("d-name"); } }); };
   ACT["d-sound"] = function () { toggleSound(); openDesk("d-sound"); };
   ACT["d-screen"] = function () { prefs.screen = prefs.screen === "classic" ? "window" : "classic"; savePrefs(); sfx("tick"); openDesk("d-screen"); };
+  ACT["d-check"] = function () { closeModal(); startCheck(); };
   ACT["d-fair"] = function () { prefs.fair = !prefs.fair; savePrefs(); sfx("tick"); openDesk("d-fair"); };
   ACT["d-lights"] = function () { prefs.lights = LIGHTS[prefs.lights].next; savePrefs(); applyLights(); sfx("tick"); openDesk("d-lights"); };
   ACT["d-big"] = function () { prefs.big = !prefs.big; savePrefs(); $("stage").classList.toggle("bigly", !!prefs.big); openDesk("d-big"); };
@@ -4150,10 +4158,29 @@ var qrcode = function() {
     String(txt).split(/\r?\n/).forEach(function (row) {
       var re = /\[(\d+):(\d+(?:[.:]\d+)?)\]/g, m, times = [], last = 0;
       while ((m = re.exec(row))) { times.push(+m[1] * 60 + parseFloat(m[2].replace(":", "."))); last = re.lastIndex; }
-      var text = row.slice(last).replace(/<\d+:\d+(?:\.\d+)?>/g, "").trim();
-      times.forEach(function (t) { out.push({ t: t, text: text }); });
+      var rest = row.slice(last), text = rest.replace(/<\d+:\d+(?:[.:]\d+)?>/g, "").replace(/\s+/g, " ").trim(), wt = wordTimes(rest);
+      times.forEach(function (t) { out.push({ t: t, text: text, wt: times.length === 1 ? wt : null }); });
     });
     return out.sort(function (a, b) { return a.t - b.t; });
+  }
+  // some lyrics carry a time for every word (or syllable): <mm:ss.xx> before it. Turn those into one start time per word.
+  function wordTimes(rest) {
+    var re = /<(\d+):(\d+(?:[.:]\d+)?)>/g, m, marks = [];
+    while ((m = re.exec(rest))) marks.push({ t: +m[1] * 60 + parseFloat(m[2].replace(":", ".")), at: m.index, after: re.lastIndex });
+    if (marks.length < 2) return null;
+    // walk the text letter by letter, knowing which mark each letter falls under
+    var words = [], cur = null, mi = -1, endT = null;
+    for (var i = 0; i < rest.length; i++) {
+      if (mi + 1 < marks.length && i === marks[mi + 1].at) { mi++; i = marks[mi].after - 1; continue; }
+      var ch = rest.charAt(i);
+      if (/\s/.test(ch)) { cur = null; continue; }
+      if (!cur) { cur = { w: "", a: mi >= 0 ? marks[mi].t : null }; words.push(cur); }
+      cur.w += ch;
+    }
+    // a mark sitting after the last word is when that word ends
+    if (marks.length && marks[marks.length - 1].after >= rest.replace(/\s+$/, "").length) endT = marks[marks.length - 1].t;
+    if (!words.length || words.some(function (w) { return w.a == null; })) return null;
+    return { words: words, end: endT };
   }
   // from timed rows to lines with a start, an end, and a share of the time for each word
   function buildLines(raw, dur) {
@@ -4161,6 +4188,14 @@ var qrcode = function() {
     raw.forEach(function (row, i) {
       if (!row.text || /^[♪\s]*$/.test(row.text)) return;
       var words = row.text.split(/\s+/), next = raw[i + 1] ? raw[i + 1].t : Math.min((dur || row.t + 6), row.t + 8);
+      // real word times, when the lyrics have them
+      if (row.wt && row.wt.words.length === words.length) {
+        var W = row.wt.words, lastEnd = row.wt.end || Math.min(next - 0.05, W[W.length - 1].a + Math.max(0.35, 0.12 * W[W.length - 1].w.length));
+        out.push({ t: Math.min(row.t, W[0].a), end: Math.max(lastEnd, W[W.length - 1].a + 0.2), text: row.text, exact: true, words: W.map(function (x, k) {
+          var b = k + 1 < W.length ? W[k + 1].a : lastEnd; return { w: x.w, a: x.a, b: Math.max(x.a + 0.05, b) };
+        }) });
+        return;
+      }
       var est = 0.9 + words.length * 0.38 + row.text.length * 0.045, end = next - row.t <= est * 1.7 ? next - 0.05 : row.t + est;
       end = Math.max(row.t + 0.6, end);
       var total = 0, w = words.map(function (x) { var k = x.replace(/[^A-Za-z0-9À-ɏ]/g, "").length + 2; total += k; return k; }), acc = 0;
@@ -4185,8 +4220,11 @@ var qrcode = function() {
     var synced = ok.filter(function (x) { return x.syncedLyrics; }), pool = synced.length ? synced : ok, best = null, bestN = -1;
     // the length most people have filed it under is the record everyone knows
     pool.forEach(function (x) { var n = 0; ok.forEach(function (y) { if (Math.abs(y.duration - x.duration) <= 2) n++; }); if (n > bestN) { bestN = n; best = x; } });
+    // among those, one that times every word beats one that only times the lines
+    var exact = pool.filter(function (x) { return x.syncedLyrics && /<\d+:\d+(?:[.:]\d+)?>/.test(x.syncedLyrics) && Math.abs(x.duration - best.duration) <= 2; });
+    if (exact.length) best = exact[0];
     var lines = buildLines(best.syncedLyrics ? parseLRC(best.syncedLyrics) : plainRows(best.plainLyrics, best.duration), best.duration);
-    return lines.length ? { dur: best.duration, synced: !!best.syncedLyrics, lines: lines } : null;
+    return lines.length ? { dur: best.duration, synced: !!best.syncedLyrics, exact: lines.some(function (l) { return l.exact; }), lines: lines } : null;
   }
   function findLyrics(song) {
     var base = "https://lrclib.net/api/search?", T = cleanTitle(song.t), A = firstArtist(song.a);
@@ -4202,7 +4240,7 @@ var qrcode = function() {
       var ids = (j.items || []).map(function (i) { return i.id && i.id.videoId; }).filter(Boolean);
       if (!ids.length) return [];
       return getJSON(api + "videos?part=contentDetails,snippet&id=" + ids.join(",") + key).then(function (k) {
-        return (k.items || []).map(function (v, i) { return { id: v.id, title: String(v.snippet && v.snippet.title || ""), dur: isoDur(v.contentDetails && v.contentDetails.duration), rank: i }; });
+        return (k.items || []).map(function (v, i) { var sn = v.snippet || {}; return { id: v.id, title: String(sn.title || ""), ch: String(sn.channelTitle || ""), desc: String(sn.description || "").slice(0, 400), dur: isoDur(v.contentDetails && v.contentDetails.duration), rank: i }; });
       });
     });
   }
@@ -4210,17 +4248,24 @@ var qrcode = function() {
     var nt = norm(song.t), bad = mode === "back" ? /\b(cover|live|remix|reaction|tutorial|lesson|piano|guitar|slowed|sped|8d|nightcore|lower key|higher key|drum|bass only)\b/ : /\b(cover|live|remix|reaction|tutorial|lesson|karaoke|instrumental|slowed|sped|8d|nightcore|lyrics?)\b/;
     var want = /\b(instrumental|karaoke|backing|minus one|no vocals)\b/;
     function low(x) { return String(x).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim(); }
-    return list.map(function (v) {
-      var full = low(v.title), t = full.replace(low(cleanTitle(song.t)), " "), d = Math.abs(v.dur - dur), sc = d + v.rank * 0.4;
+    var art = low(firstArtist(song.a)), seen = {};
+    return list.filter(function (v) { if (seen[v.id]) return false; seen[v.id] = 1; return true; }).map(function (v) {
+      var full = low(v.title), t = full.replace(low(cleanTitle(song.t)), " "), d = Math.abs(v.dur - dur), sc = d * 1.5 + v.rank * 0.4;
+      var ch = low(v.ch), official = / topic$/.test(ch) || /provided to youtube by/i.test(v.desc) || (art && ch.indexOf(art) !== -1) || /\bvevo\b/.test(ch);
       if (bad.test(t)) sc += 40;
       if (mode === "back" && !want.test(t)) sc += 60;
       if (full.indexOf(low(cleanTitle(song.t))) === -1 && full.indexOf(nt) === -1) sc += 30;
-      return { id: v.id, d: d, sc: sc };
+      // the record company's own upload is the actual record (minus the vocals, for an instrumental),
+      // so the lyric timings line up exactly. Re-recorded karaoke versions come next.
+      if (official) sc -= mode === "back" ? (/instrumental/.test(t) ? 14 : 0) : 10;
+      if (mode === "back" && /official instrumental/.test(t)) sc -= 6;
+      if (mode === "back" && /\bkaraoke\b/.test(t) && !official) sc += 3;
+      return { id: v.id, d: d, sc: sc, official: official };
     }).sort(function (a, b) { return a.sc - b.sc; });
   }
   function findVideo(song, mode, dur) {
     var memo = songMemo[songKey(song) + "|" + mode];
-    if (memo && memo.v) return Promise.resolve([{ id: memo.v, d: memo.d || 0, memo: true }]);
+    if (memo && memo.v && (memo.rv === 2 || memo.off)) return Promise.resolve([{ id: memo.v, d: memo.d || 0, memo: true }]);
     if (!prefs.ytKey) { var e = new Error("nokey"); e.kind = "nokey"; return Promise.reject(e); }
     var A = firstArtist(song.a), T = cleanTitle(song.t);
     function fail(e) { if (e && (e.status === 400 || e.status === 403)) e.kind = "badkey"; throw e; }
@@ -4358,7 +4403,7 @@ var qrcode = function() {
     });
   }
   function beginSong(d) {
-    S.lines = d.lyr.lines; S.synced = d.lyr.synced; S.dur = d.lyr.dur; S.vids = d.vids || [];
+    S.lines = d.lyr.lines; S.synced = d.lyr.synced; S.exact = !!d.lyr.exact; S.dur = d.lyr.dur; S.vids = d.vids || [];
     S.duet = !!S.q.singer2; if (S.duet) assignParts(S.lines);
     S.why = []; S.wrapNote = "";
     var h = { playing: onPlaying, ended: function () { finishSong(true); }, error: function (code) { if (!S) return; if (!S.loading) return finishSong(false); S.why.push(code + (S.player && S.player.kind === "yt" ? (S.player.wrapped ? (S.player.wrapOK ? "" : "?") : "!") : "")); if (S.player) S.player.stop(); S.vi++; tryVideo(); } };
@@ -4393,10 +4438,11 @@ var qrcode = function() {
   function onPlaying() {
     if (!S || !S.loading) return;
     S.loading = false; prefetchSoon();
-    if (S.player.kind === "yt") { var v = S.vids[S.vi]; songMemo[memoKey()] = { v: v.id, d: v.d, off: S.off }; store.set("snk-songs", songMemo); }
+    if (S.player.kind === "yt") { var v = S.vids[S.vi]; songMemo[memoKey()] = { v: v.id, d: v.d, off: S.off, rv: 2 }; store.set("snk-songs", songMemo); }
     var c = $("cue"); c.classList.add("open"); setTimeout(function () { c.hidden = true; }, 820);
     $("osdR").innerHTML = esc(who(S.q).toUpperCase()) + "<br>♪ " + (S.q.mode === "band" ? "WITH THE BAND" : S.q.mode === "house" ? "HOUSE BAND" : "BACKING TRACK");
     if (S.player.blind) flashOsd("PLAYING BY EAR — ◄ ► TO LINE THE WORDS UP", 9000);
+    else if (S.exact) flashOsd("TIMED WORD BY WORD", 5000);
     else if (!S.synced) flashOsd("WORDS ONLY — ◄ ► TO KEEP THEM IN STEP", 7000); else if (S.drift > 6) flashOsd("TIMING MAY WANDER — ◄ ► TO NUDGE", 7000);
     clearInterval(tickT); tickT = setInterval(tick, 42);
   }
@@ -4446,7 +4492,7 @@ var qrcode = function() {
   function lineHTMLSing(l) { return l.words.map(function (w) { var t = esc(w.w); return '<span class="w">' + t + "<i>" + t + "</i></span>"; }).join(" "); }
   function tick() {
     if (!S || S.loading) return;
-    var p = S.player, t = p.time(), tl = t - S.off, L = S.lines, n = L.length, ni = S.ni < 0 ? 0 : S.ni;
+    var p = S.player, t = p.time(), tl = t - S.off - prefs.lag, L = S.lines, n = L.length, ni = S.ni < 0 ? 0 : S.ni;
     while (ni < n && L[ni].end <= tl) ni++;
     while (ni > 0 && L[ni - 1].end > tl) ni--;
     var now = L[ni];
@@ -4491,6 +4537,62 @@ var qrcode = function() {
   ACT.nextup = function () { clearTimeout(autoNext); closeModal(); startIntermission(); };
   ACT.tobar = function () { clearTimeout(autoNext); closeModal(); fadeThen(showBar); };
   ACT.again = function () { clearTimeout(autoNext); closeModal(); if (lastSung) { queue.unshift(lastSung); startNext(); } };
+
+  // ---------- the sound check: line the flash up with the click, and the words line up with the music ----------
+  // A soundbar takes a moment to play what the TV sends it. A click plays on a steady beat and a lamp flashes with
+  // it; you move the flash until it lands on the click you hear. That gap is how long the words should wait.
+  var CHK = null;
+  function lagFmt(v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2) + " s"; }
+  function lagText() { return !prefs.lagSet ? "Not done yet" : Math.abs(prefs.lag) < 0.005 ? "No delay" : prefs.lag > 0 ? "Words wait " + prefs.lag.toFixed(2) + " s for the sound" : "Words go " + (-prefs.lag).toFixed(2) + " s early"; }
+  function startCheck() {
+    if (!audioReady()) { say("This TV can't play the clicks, love."); return; }
+    ambience(null);
+    go("sing"); paintWindow(); clearScreen();
+    ["osd", "osdR"].forEach(function (id) { $(id).innerHTML = ""; }); $("lyCard").hidden = true; $("lyBreak").hidden = true; $("cue").hidden = true;
+    hint("sgHint", [["", "◄ ►  move the flash"], ["", "OK  keep it"], ["", "BACK  leave it as it was"]]);
+    CHK = { lag: prefs.lag, next: ac.currentTime + 0.5, flashes: [], timer: null, raf: null };
+    drawCheck(); $("chkLamp").hidden = false;
+    CHK.timer = setInterval(checkSchedule, 80); checkSchedule();
+    CHK.raf = requestAnimationFrame(checkFrame);
+  }
+  function drawCheck() {
+    var rows = pixCard($("lyCv"), [
+      { t: "SOUND CHECK", size: 14, col: PIXCOL.dim },
+      { t: "Press LEFT or RIGHT until the flash", size: 13, col: PIXCOL.cur, gap: 50 },
+      { t: "lands right on the click you hear", size: 13, col: PIXCOL.cur },
+      { t: lagFmt(CHK.lag), size: 26, col: PIXCOL.sung, gap: 8 }
+    ]);
+    var top = rows[0].y + rows[0].h, bottom = rows[1].y;
+    $("chkLamp").style.top = Math.round((top + bottom) / 2 - 95) + "px";
+  }
+  function checkClick(at) {
+    var o = ac.createOscillator(), g = ac.createGain(); o.type = "square"; o.frequency.value = 1760;
+    g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(0.22, at + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
+    o.connect(g); g.connect(ac.destination); o.start(at); o.stop(at + 0.07);
+  }
+  function checkSchedule() {
+    if (!CHK) return;
+    while (CHK.next < ac.currentTime + 0.25) {
+      var at = CHK.next; checkClick(at);
+      CHK.flashes.push(performance.now() + (at - ac.currentTime) * 1000);
+      CHK.next += 0.8;
+    }
+    var old = performance.now() - 3000; CHK.flashes = CHK.flashes.filter(function (f) { return f > old; });
+  }
+  function checkFrame() {
+    if (!CHK) return;
+    var now = performance.now(), on = false;
+    for (var i = 0; i < CHK.flashes.length; i++) { var st = CHK.flashes[i] + CHK.lag * 1000; if (now >= st && now < st + 110) { on = true; break; } }
+    var l = $("chkLamp"); if (l.classList.contains("on") !== on) l.classList.toggle("on", on);
+    CHK.raf = requestAnimationFrame(checkFrame);
+  }
+  function endCheck(keep) {
+    if (!CHK) return;
+    clearInterval(CHK.timer); cancelAnimationFrame(CHK.raf);
+    var lag = CHK.lag; CHK = null; $("chkLamp").hidden = true; $("chkLamp").classList.remove("on"); clearScreen();
+    if (keep) { prefs.lag = Math.round(lag * 100) / 100; prefs.lagSet = true; savePrefs(); }
+    fadeThen(function () { showBar(); if (keep) say(Math.abs(prefs.lag) < 0.005 ? "Sound check done. No delay to make up." : "Sound check done. The words will wait " + prefs.lag.toFixed(2) + " s for your speakers.", HOST, 5000); });
+  }
 
   // ---------- between singers: the old machine's countdown, fifteen seconds, skippable ----------
   var INT = null;
@@ -4564,6 +4666,11 @@ var qrcode = function() {
       else if (k === KEY.OK) { sfx("tap"); activate(cur()); }
       else if (k === KEY.YELLOW) openBoardList();
       else if (k === KEY.BACK || k === KEY.ESC) { sfx("close"); showBar(); }
+    } else if (SC === "sing" && CHK) {
+      if (k === KEY.LEFT) { CHK.lag = Math.max(-0.3, Math.round((CHK.lag - 0.02) * 100) / 100); drawCheck(); }
+      else if (k === KEY.RIGHT) { CHK.lag = Math.min(1, Math.round((CHK.lag + 0.02) * 100) / 100); drawCheck(); }
+      else if (k === KEY.OK) endCheck(true);
+      else if (k === KEY.BACK || k === KEY.ESC) endCheck(false);
     } else if (SC === "sing" && INT) {
       if (k === KEY.OK || k === KEY.PLAY || k === KEY.PP) { sfx("bell"); endIntermission(true); }
       else if (k === KEY.BACK || k === KEY.ESC || k === KEY.STOP) { endIntermission(false); fadeThen(showBar); }
@@ -4592,6 +4699,7 @@ var qrcode = function() {
     if (el && scope().contains(el)) { var was = cur() === el; setFocus(el, true); if (was || !el.classList.contains("tab")) activate(el); return; }
     if (osk || !$("modal").hidden) return;
     if (SC === "out" && !entering) enterBar();
+    else if (SC === "sing" && CHK) endCheck(true);
     else if (SC === "sing" && INT) endIntermission(true);
     else if (SC === "sing" && S && !S.loading) { if (S.player.playing()) S.player.pause(); else S.player.resume(); }
   });
@@ -4620,7 +4728,7 @@ var qrcode = function() {
       try { sessionStorage.removeItem("snk-next-html"); } catch (e) {}
     } catch (e) {}
   }, 5000);
-  window.__snk = { add: function (o) { return addToQueue(o); }, state: function () { return { sc: SC, int: INT ? INT.left : null, prep: Object.keys(prep), queue: queue.length, q: queue.map(function (q) { return who(q) + ":" + q.song.t + ":" + q.mode; }), key: prefs.ytKey ? "set" : "", line: lineUp, link: canPhone() ? phoneLink() : "", song: S ? { loading: S.loading, ni: S.ni, lines: S.lines.length } : null }; } };
+  window.__snk = { add: function (o) { return addToQueue(o); }, lines: function () { return S ? S.lines.slice(0, 3) : null; }, state: function () { return { sc: SC, int: INT ? INT.left : null, lag: prefs.lag, chk: CHK ? CHK.lag : null, prep: Object.keys(prep), queue: queue.length, q: queue.map(function (q) { return who(q) + ":" + q.song.t + ":" + q.mode; }), key: prefs.ytKey ? "set" : "", line: lineUp, link: canPhone() ? phoneLink() : "", song: S ? { loading: S.loading, ni: S.ni, lines: S.lines.length } : null }; } };
 
 })();
 </script>
