@@ -1,4 +1,4 @@
-  var APP_VERSION = "0.2.0", APP_DATE = "16 Nov 2026";
+  var APP_VERSION = "0.2.1", APP_DATE = "16 Nov 2026";
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function clip(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
@@ -602,21 +602,36 @@
   }
 
   // ---------- players ----------
-  // YouTube, heard and not seen: the picture sits behind the painted window
-  function ytPlayer(id, h) {
-    var p = { kind: "yt", t0: 0, at: 0, state: -1, dur: 0, dead: false, got: false };
-    $("ytBox").innerHTML = '<iframe id="ytF" tabindex="-1" title="Music" allow="autoplay; encrypted-media" src="https://www.youtube-nocookie.com/embed/' + enc(id) + '?autoplay=1&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&enablejsapi=1"></iframe>';
-    var fr = $("ytF");
+  // YouTube, heard and not seen: the picture sits behind the painted window.
+  // The player normally reports back (playing, paused, the time). Some TVs never pass those reports on, so if the
+  // player stays silent the bar keeps time on its own clock instead of giving up on a tape that is playing fine.
+  function ytPlayer(id, h, songDur) {
+    var p = { kind: "yt", t0: 0, at: 0, state: -1, dur: 0, dead: false, got: false, blind: false, paused: false };
+    var org = /^https?:\/\//.test(location.origin || "") ? "&origin=" + enc(location.origin) : "";
+    $("ytBox").innerHTML = '<iframe id="ytF" tabindex="-1" title="Music" allow="autoplay; encrypted-media" src="https://www.youtube-nocookie.com/embed/' + enc(id) + '?autoplay=1&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&enablejsapi=1' + org + '"></iframe>';
+    var fr = $("ytF"), made = performance.now(), loadedAt = 0, endT = null;
     function post(m) { try { fr.contentWindow.postMessage(JSON.stringify(m), "*"); } catch (e) {} }
     function cmd(f, a) { post({ event: "command", func: f, args: a || [] }); }
     var hello = setInterval(function () { if (p.dead || p.got) return clearInterval(hello); post({ event: "listening", id: 1, channel: "widget" }); }, 400);
-    var dog = setTimeout(function () { if (!p.dead && p.state !== 1 && !p.everPlayed) h.error("stall"); }, 15000);
+    fr.addEventListener("load", function () { loadedAt = performance.now(); post({ event: "listening", id: 1, channel: "widget" }); setTimeout(function () { if (!p.dead) cmd("playVideo"); }, 1200); });
+    // silent for 8 seconds after the page loaded: play blind. Talking but never playing for 25 seconds: try the next tape.
+    var blindT = setTimeout(goBlind, 9000), dog = setTimeout(function () { if (!p.dead && !p.everPlayed) h.error("stall"); }, 25000);
+    function goBlind() {
+      if (p.dead || p.got || p.everPlayed) { if (!p.dead && !p.got && !loadedAt) blindT = setTimeout(goBlind, 3000); return; }
+      if (!loadedAt) { blindT = setTimeout(goBlind, 3000); return; }
+      p.blind = true; p.everPlayed = true; clearTimeout(dog);
+      // the tape usually starts a second or two after its page appears
+      p.t0 = Math.max(0, (performance.now() - loadedAt) / 1000 - 2); p.at = performance.now(); p.state = 1;
+      schedEnd(); h.playing();
+    }
+    function schedEnd() { clearTimeout(endT); if (!p.blind || p.paused) return; var left = (songDur || 240) + 2 - p.time(); endT = setTimeout(function () { if (!p.dead) h.ended(); }, Math.max(1, left) * 1000); }
     function onMsg(e) {
       if (p.dead || e.source !== fr.contentWindow || !/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(String(e.origin))) return;
       var d = e.data; try { d = typeof d === "string" ? JSON.parse(d) : d; } catch (x) { return; }
       if (!d) return;
-      p.got = true;
-      if (d.event === "onError") { clearTimeout(dog); return h.error(d.info); }
+      if (!p.got) { p.got = true; if (p.blind) { p.blind = false; clearTimeout(endT); } }
+      if (d.event === "onError") { clearTimeout(dog); clearTimeout(blindT); return h.error(d.info); }
+      if (d.event === "onReady" || d.event === "initialDelivery") cmd("playVideo");
       var info = d.info && typeof d.info === "object" ? d.info : null;
       if (info) {
         if (typeof info.duration === "number" && info.duration) p.dur = info.duration;
@@ -629,16 +644,16 @@
       if (st === p.state) return;
       if (p.state === 1) { p.t0 = p.time(); p.at = performance.now(); }
       p.state = st; if (st === 1) p.at = performance.now();
-      if (st === 1 && !p.everPlayed) { p.everPlayed = true; clearTimeout(dog); cmd("unloadModule", ["captions"]); cmd("setVolume", [100]); h.playing(); }
+      if (st === 1 && !p.everPlayed) { p.everPlayed = true; clearTimeout(dog); clearTimeout(blindT); cmd("unloadModule", ["captions"]); cmd("setVolume", [100]); h.playing(); }
       if (st === 0) h.ended();
     }
     window.addEventListener("message", onMsg);
     p.time = function () { return p.state === 1 ? p.t0 + (performance.now() - p.at) / 1000 : p.t0; };
     p.playing = function () { return p.state === 1; };
-    p.pause = function () { cmd("pauseVideo"); };
-    p.resume = function () { cmd("playVideo"); };
-    p.seek = function (d) { var t = Math.max(0, p.time() + d); p.t0 = t; p.at = performance.now(); cmd("seekTo", [t, true]); };
-    p.stop = function () { p.dead = true; clearInterval(hello); clearTimeout(dog); window.removeEventListener("message", onMsg); $("ytBox").innerHTML = ""; };
+    p.pause = function () { cmd("pauseVideo"); if (p.blind) { p.t0 = p.time(); p.state = 2; p.paused = true; clearTimeout(endT); } };
+    p.resume = function () { cmd("playVideo"); if (p.blind) { p.at = performance.now(); p.state = 1; p.paused = false; schedEnd(); } };
+    p.seek = function (d) { var t = Math.max(0, p.time() + d); p.t0 = t; p.at = performance.now(); cmd("seekTo", [t, true]); schedEnd(); };
+    p.stop = function () { p.dead = true; clearInterval(hello); clearTimeout(dog); clearTimeout(blindT); clearTimeout(endT); window.removeEventListener("message", onMsg); $("ytBox").innerHTML = ""; };
     return p;
   }
   // the house song: written for the bar, played by a little synth so it needs no internet and no key
@@ -700,7 +715,8 @@
   }
   function beginSong(d) {
     S.lines = d.lyr.lines; S.synced = d.lyr.synced; S.dur = d.lyr.dur; S.vids = d.vids || [];
-    var h = { playing: onPlaying, ended: function () { finishSong(true); }, error: function () { if (!S) return; if (!S.loading) return finishSong(false); if (S.player) S.player.stop(); S.vi++; tryVideo(); } };
+    S.why = [];
+    var h = { playing: onPlaying, ended: function () { finishSong(true); }, error: function (code) { if (!S) return; if (!S.loading) return finishSong(false); S.why.push(code); if (S.player) S.player.stop(); S.vi++; tryVideo(); } };
     S.h = h;
     if (S.q.song.house) S.player = housePlayer(h); else tryVideo();
   }
@@ -709,7 +725,8 @@
     var v = S.vids[S.vi];
     if (!v) { if (S.vids[0] && S.vids[0].memo) { delete songMemo[memoKey()]; store.set("snk-songs", songMemo); } return songFailed("novideo"); }
     var memo = songMemo[memoKey()]; S.off = memo && memo.v === v.id ? memo.off || 0 : 0; S.drift = v.d;
-    S.player = ytPlayer(v.id, S.h);
+    cue(null, null, HOST + " is cueing up tape " + (S.vi + 1) + " of " + S.vids.length + "…");
+    S.player = ytPlayer(v.id, S.h, S.dur);
   }
   function onPlaying() {
     if (!S || !S.loading) return;
@@ -717,24 +734,41 @@
     if (S.player.kind === "yt") { var v = S.vids[S.vi]; songMemo[memoKey()] = { v: v.id, d: v.d, off: S.off }; store.set("snk-songs", songMemo); }
     var c = $("cue"); c.classList.add("open"); setTimeout(function () { c.hidden = true; }, 820);
     $("osdR").innerHTML = esc(S.q.singer.toUpperCase()) + "<br>♪ " + (S.q.mode === "band" ? "WITH THE BAND" : S.q.mode === "house" ? "HOUSE BAND" : "BACKING TRACK");
-    if (!S.synced) flashOsd("WORDS ONLY — ◄ ► TO KEEP THEM IN STEP", 7000); else if (S.drift > 6) flashOsd("TIMING MAY WANDER — ◄ ► TO NUDGE", 7000);
+    if (S.player.blind) flashOsd("PLAYING BY EAR — ◄ ► TO LINE THE WORDS UP", 9000);
+    else if (!S.synced) flashOsd("WORDS ONLY — ◄ ► TO KEEP THEM IN STEP", 7000); else if (S.drift > 6) flashOsd("TIMING MAY WANDER — ◄ ► TO NUDGE", 7000);
     clearInterval(tickT); tickT = setInterval(tick, 42);
   }
+  function whyText(code) {
+    var c = String(code);
+    if (c === "101" || c === "150" || c === "152") return "the owner won't let it play outside YouTube";
+    if (c === "153") return "YouTube wanted to know where it was playing (error 153)";
+    if (c === "100") return "it's been taken down";
+    if (c === "5") return "the TV couldn't play it (error 5)";
+    if (c === "2") return "YouTube didn't like the request (error 2)";
+    if (c === "stall") return "it never started";
+    return "error " + c;
+  }
   function songFailed(kind) {
-    var q = S && S.q; stopSong();
+    var q = S && S.q, why = S && S.why || [], tried = S && S.vids ? S.vids.length : 0; stopSong();
+    var detail = kind === "novideo" ? (tried ? "What happened: " + why.map(function (w, i) { return "tape " + (i + 1) + ": " + whyText(w); }).join(" · ") : "What happened: YouTube found no tapes for it.") : "";
+    try { store.set("snk-lastfail", { t: Date.now(), kind: kind, song: q ? q.song.t + " — " + q.song.a : "", mode: q ? q.mode : "", why: why, tried: tried, origin: location.origin }); } catch (e) {}
+    lastFailed = q;
     var msg = {
       nokey: ["The jukebox isn't plugged in", "“I've got the words, love, but no music.” The jukebox needs its key before it can play anything but the house song. Ring the bell on the counter and choose Jukebox key."],
       badkey: ["The jukebox won't take the key", "Google turned the jukebox key down. It may be mistyped, or it has used up today's searches (Google allows about a hundred a day; songs you have sung before don't use any). Ring the bell and check Jukebox key."],
       nolyrics: ["No words for that one", "“Sorry love, I can't find the words for that one.” Try another version from Ask " + HOST + "."],
-      novideo: ["No music for that one", "“I've got the words but I can't find a tape that'll play.” Try it the other way (backing track or with the band) on the slip."],
+      novideo: ["No music for that one", "“I've got the words but I can't find a tape that'll play.” Try it the other way: " + (q && q.mode === "band" ? "with a backing track." : "with the band, which plays the record itself.")],
       net: ["The line's dead", HOST + " couldn't reach the lyrics library or the jukebox. Check the TV's internet connection and try again."]
     }[kind] || ["That didn't work", "Something went wrong cueing that song."];
     fadeThen(function () {
       showBar();
-      openModal('<div class="k">' + esc(HOST) + " taps the mic</div><h3>" + esc(msg[0]) + "</h3><p>" + esc(msg[1]) + "</p>" + (q ? '<p class="sm">' + esc(q.song.t) + " — " + esc(q.song.a) + "</p>" : "") +
-        '<div class="btns">' + (kind === "nokey" || kind === "badkey" ? '<span class="btn f" data-act="d-key">Jukebox key</span><span class="btn plain f" data-act="d-house">Sing the house song</span>' : "") + '<span class="btn plain f" data-act="close">Back to the bar</span></div>', refresh);
+      openModal('<div class="k">' + esc(HOST) + " taps the mic</div><h3>" + esc(msg[0]) + "</h3><p>" + esc(msg[1]) + "</p>" + (q ? '<p class="sm">' + esc(q.song.t) + " — " + esc(q.song.a) + "</p>" : "") + (detail ? '<p class="sm">' + esc(detail) + "</p>" : "") +
+        '<div class="btns">' + (kind === "nokey" || kind === "badkey" ? '<span class="btn f" data-act="d-key">Jukebox key</span><span class="btn plain f" data-act="d-house">Sing the house song</span>' : "") +
+        (kind === "novideo" && q && !q.song.house ? '<span class="btn f" data-act="otherway">' + (q.mode === "band" ? "Try a backing track" : "Try it with the band") + "</span>" : "") + '<span class="btn plain f" data-act="close">Back to the bar</span></div>', refresh);
     });
   }
+  var lastFailed = null;
+  ACT.otherway = function () { var q = lastFailed; closeModal(); if (!q) return; queue.unshift({ song: q.song, singer: q.singer, mode: q.mode === "band" ? "back" : "band" }); startNext(); };
   function stopSong() { clearInterval(tickT); tickT = null; if (S && S.player) S.player.stop(); S = null; }
   function flashOsd(t, ms) { S && (S.flash = t); clearTimeout(osdT); osdT = setTimeout(function () { if (S) S.flash = ""; }, ms || 2200); }
   function nudge(d) {
