@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Saturday Night Karaoke</title>
+<style>
+html, body { margin: 0; height: 100%; background: #12081a; overflow: hidden; }
+#card { position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; font-family: "Cooper Black", "Bookman Old Style", Georgia, serif; }
+#nm { font-size: 9vh; line-height: 1.05; font-weight: bold; color: #ffe9f2; text-shadow: 0 0 .5vh #ff5fa2, 0 0 2vh #ff5fa2, 0 0 5vh rgba(255,95,162,.6); }
+#nm small { display: block; font-size: 5vh; color: #e9fffd; text-shadow: 0 0 .5vh #62e8de, 0 0 2vh #62e8de; margin-bottom: 1vh; }
+#ld { margin-top: 5vh; font: 3.4vh "Courier New", monospace; letter-spacing: .2em; color: #ffc857; }
+#msg { margin-top: 2vh; max-width: 70vw; font: 2.6vh Arial, sans-serif; color: #d9b8a0; min-height: 4vh; }
+</style>
+<div id="card"><div id="nm"><small>Saturday Night</small>Karaoke</div><div id="ld">WARMING UP THE TUBES<span id="dots"></span></div><div id="msg"></div></div>
+<script>
+// Saturday Night Karaoke loader (app/index.html). Same routine as the video store next door:
+// 1. Shows the sign while it works.
+// 2. Reads release.json from the repo to find which tagged release the TVs should run, e.g. {"ref": "v1", "version": "0.1.0"}.
+// 3. If that release is already saved on this TV, opens the saved copy. Otherwise downloads that release's app/bar.html,
+//    checks it arrived whole and is the version promised, and opens it.
+// 4. A new release only becomes the saved copy once it has opened and stayed up for a few seconds (the bar says so).
+//    A release that fails to open twice is skipped, and the TV keeps using the last good copy.
+// 5. With no internet: the saved copy, then the copy bundled with this file.
+(function () {
+  "use strict";
+  var REPO = "timmydouglas98-netizen/saturday-night-karaoke";
+  var RAW = "https://raw.githubusercontent.com/" + REPO + "/";
+  var MIN_CARD_MS = 1200, started = Date.now(), done = false;
+  var ls = null; try { ls = window.localStorage; } catch (e) {}
+  function lget(k) { try { return ls ? ls.getItem(k) : null; } catch (e) { return null; } }
+  function lset(k, v) { try { if (ls) ls.setItem(k, v); return true; } catch (e) { return false; } }
+  function ldel(k) { try { if (ls) ls.removeItem(k); } catch (e) {} }
+  // the bar's own name on the sign
+  try {
+    var p = JSON.parse(lget("snk-prefs") || "{}"), name = p && typeof p.barName === "string" ? p.barName.replace(/\s+/g, " ").trim().slice(0, 40) : "";
+    if (name) {
+      var w = name.split(" "), last = w.length > 1 ? w.pop() : w[0], first = w.length && w[0] !== last ? w.join(" ") : "";
+      var nm = document.getElementById("nm"); nm.innerHTML = "";
+      if (first) { var sm = document.createElement("small"); sm.textContent = first; nm.appendChild(sm); }
+      nm.appendChild(document.createTextNode(last));
+    }
+  } catch (e) {}
+  var dots = document.getElementById("dots"), dn = 0;
+  var dotT = setInterval(function () { dn = (dn + 1) % 4; dots.textContent = ["", ".", "..", "..."][dn]; }, 420);
+  function show(html) {
+    if (done) return; done = true;
+    var wait = Math.max(0, MIN_CARD_MS - (Date.now() - started));
+    setTimeout(function () { clearInterval(dotT); document.open(); document.write(html); document.close(); }, wait);
+  }
+  // a whole bar, not half a download
+  function looksRight(t) {
+    return typeof t === "string" && t.length > 50000 && t.indexOf("snk-prefs") !== -1 && t.indexOf("APP_VERSION") !== -1 && /<\/script>\s*(<\/body>\s*)?(<\/html>\s*)?$/.test(t);
+  }
+  function get(url, ms, ok, bad) {
+    var fin = false;
+    try {
+      var x = new XMLHttpRequest();
+      x.open("GET", url); x.timeout = ms;
+      x.onload = function () { if (fin) return; fin = true; if (x.status === 200) ok(x.responseText); else bad(); };
+      x.onerror = x.ontimeout = function () { if (fin) return; fin = true; bad(); };
+      x.send();
+    } catch (e) { if (!fin) { fin = true; bad(); } }
+  }
+  function fail() {
+    clearInterval(dotT);
+    document.getElementById("ld").textContent = "CLOSED FOR THE NIGHT";
+    document.getElementById("msg").textContent = "Couldn't reach the bar. Check the TV's internet connection, then reopen the app.";
+  }
+  function fallback() {
+    var c = lget("snk-bar-cache");
+    if (looksRight(c)) return show(c);
+    get("bar.html", 15000, function (t) { if (looksRight(t)) show(t); else fail(); }, fail);
+  }
+  // the last launch tried a new release and it never said it opened properly
+  var pending = lget("snk-boot-pending"), bad = lget("snk-bad-ref");
+  if (pending) {
+    ldel("snk-boot-pending");
+    var f = (lget("snk-boot-fails") || "").split("|"), n = f[0] === pending ? (parseInt(f[1], 10) || 0) + 1 : 1;
+    lset("snk-boot-fails", pending + "|" + n);
+    if (n >= 2) { bad = pending; lset("snk-bad-ref", pending); }
+  }
+  var good = null; try { good = JSON.parse(lget("snk-good") || "null"); } catch (e) {}
+  get(RAW + "HEAD/release.json?t=" + Date.now(), 6000, function (t) {
+    var rel = null; try { rel = JSON.parse(t); } catch (e) {}
+    if (!rel || typeof rel.ref !== "string" || !/^[A-Za-z0-9._\-\/]{1,80}$/.test(rel.ref)) return fallback();
+    if (rel.ref === bad) return fallback();
+    var cached = lget("snk-bar-cache");
+    if (good && good.ref === rel.ref && looksRight(cached) && (!rel.version || cached.indexOf('APP_VERSION = "' + rel.version + '"') !== -1)) return show(cached);
+    get(RAW + rel.ref + "/app/bar.html", 20000, function (html) {
+      if (!looksRight(html)) return fallback();
+      if (rel.version && html.indexOf('APP_VERSION = "' + rel.version + '"') === -1) return fallback();
+      try { sessionStorage.setItem("snk-next-html", html); } catch (e) {}
+      lset("snk-boot-pending", rel.ref);
+      show(html);
+    }, fallback);
+  }, fallback);
+})();
+</script>
+</html>

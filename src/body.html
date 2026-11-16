@@ -1,0 +1,57 @@
+<div id="stage" data-sc="out">
+  <div class="sc" id="scOut">
+    <div id="outZoom"><div id="outCam">
+      <div class="weave">
+        <canvas id="oSky" width="960" height="540"></canvas>
+        <div class="pan"><canvas id="oCloudA" width="1920" height="640"></canvas><canvas id="oCloudB" width="1920" height="640"></canvas></div>
+        <canvas id="oPlate" width="1920" height="1080"></canvas>
+        <svg id="oCels" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="The karaoke bar next door to the video store, on a rainy evening"></svg>
+      </div>
+      <div class="rain far"><i></i></div><div class="rain near"><i></i></div>
+    </div></div>
+    <div class="press inked" id="oPress">Press OK to come in</div>
+    <div class="clock inked" id="oClock"></div>
+  </div>
+
+  <div class="sc" id="scBar">
+    <div class="weave">
+      <canvas id="bPlate" width="1920" height="1080"></canvas>
+      <svg id="bCels" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Inside the bar: a small stage, the host's booth and the songbook on the counter"></svg>
+    </div>
+    <div id="bSpots"></div>
+    <div class="hint" id="bHint"></div>
+  </div>
+
+  <div class="sc" id="scBook">
+    <div class="ring-stain"></div>
+    <div id="binder">
+      <div class="tabs" id="bkTabs"></div>
+      <div class="pg l" id="bkL"></div>
+      <div class="rings"></div>
+      <div class="pg r" id="bkR"></div>
+    </div>
+    <div class="hint" id="bkHint"></div>
+  </div>
+
+  <div class="sc" id="scSing">
+    <div id="ytBox"></div>
+    <div class="weave">
+      <canvas id="wPlate" width="1920" height="1080"></canvas>
+      <svg id="wCels" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" aria-hidden="true"></svg>
+    </div>
+    <div class="rain glass far"><i></i></div><div class="rain glass near"><i></i></div>
+    <div id="lyDim"></div>
+    <div id="lyCard" hidden></div>
+    <div id="lyBreak" class="inked" hidden>♪ &nbsp; ♪ &nbsp; ♪</div>
+    <div id="ly"><div id="lyDots"></div><div id="lyNow"></div><div id="lyNext"></div></div>
+    <div id="osd"></div><div id="osdR"></div>
+    <div class="hint" id="sgHint"></div>
+    <div id="cue" hidden><div class="cue-card"><div class="k" id="cueK"></div><div class="t" id="cueT"></div><div class="s" id="cueS"></div></div></div>
+  </div>
+
+  <div id="say" hidden></div>
+  <div id="modal" hidden></div>
+  <div id="osk" hidden><div id="oskLabel"></div><div id="oskText"></div><div id="oskKeys"></div><input id="oskReal" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+  <div class="grain" id="grain"></div><div class="flick"></div><div class="vig"></div>
+  <div id="fade" class="on"></div>
+</div>
