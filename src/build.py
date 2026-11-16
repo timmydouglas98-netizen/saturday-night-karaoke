@@ -34,10 +34,10 @@ def read(n): return (here / n).read_text(encoding="utf-8")
 vendor_bar = "<script>\n/* tweetnacl-js (public domain) and qrcode-generator (MIT, Kazuhiko Arase) */\n" + read("vendor-nacl.js") + "\n" + read("vendor-qrcode.js") + "\n</script>\n"
 html = ("<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<title>Saturday Night Karaoke</title>\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        + fonts + "\n<style>\n" + read("style.css") + "\n</style>\n<body>\n" + read("body.html") + "\n" + vendor_bar
+        + fonts + "\n<style>\n" + read("font-pix.css") + read("style.css") + "\n</style>\n<body>\n" + read("body.html") + "\n" + vendor_bar
         + "<script>\n(function () {\n\"use strict\";\n// ===== shared art kit (from Friday Night Video) =====\n" + kit
         + "\n// ===== the bar's own art =====\n" + read("art.js") + "\n// ===== the songbook =====\n" + read("book.js")
-        + "\n" + read("relay.js") + "\n// ===== the bar =====\n" + read("app.js")
+        + "\n" + read("relay.js") + "\n" + read("pixly.js") + "\n// ===== the bar =====\n" + read("app.js")
         + "\n})();\n</script>\n</body>\n</html>\n")
 (root / "app" / "bar.html").write_text(html, encoding="utf-8")
 print("bar.html", len(html), "bytes; kit", len(kit))

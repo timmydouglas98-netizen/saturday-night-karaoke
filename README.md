@@ -4,7 +4,7 @@ The karaoke bar next door to Friday Night Video, built to run on a Samsung TV th
 
 You walk in off a wet street, flick through the songbook on the counter, hand Rhonda a request slip, and sing with the words lit up over a rainy city window. The music plays from YouTube (heard, not seen). The words come from LRCLIB, a free lyrics library.
 
-This is version 0.2.0. It adds requests from a phone.
+This is version 0.4.0.
 
 ## What's in it
 
@@ -12,7 +12,11 @@ This is version 0.2.0. It adds requests from a phone.
 - **The bar:** the stage, Rhonda's booth, the request board, the regulars' wall and the songbook.
 - **The songbook:** about 200 songs under tabs (Favourites, decades, Duets, Ballads, Last Call), plus **Ask Rhonda** for anything else.
 - **Request slips:** pick who's singing, and whether you want a backing track or to sing along with the record.
-- **On stage:** each line fills with colour as it's sung, with a count-in before lines and a card over long breaks.
+- **On stage:** chunky bitmap lettering like the old karaoke machines, filling with colour as it's sung, with a count-in before lines and a card over long breaks. The words sit over the rainy city window, or a classic flat blue screen (ring the bell → Stage screen).
+- **Duets:** tick Duet on the slip and pick a partner. Verses take turns in blue and pink with each singer's name; the chorus is sung together in gold.
+- **Between singers:** a fifteen-second countdown with the next singer and song. OK starts it straight away, red skips that slip, Back returns to the bar. The next song's words and music are found while the current one plays, so there's no waiting.
+- **Fair turns:** everyone waiting gets a go before anyone sings twice (ring the bell → Turns to switch it off).
+- **Lights:** the screen dims from 8pm to 6am by default; ring the bell → Lights for Dim, Dimmer or Bright.
 - **After the song:** a score that means nothing, applause, and a polaroid on the regulars' wall.
 - **Phone requests:** scan the code on the table tent and send slips from a phone. See "Phone requests" below.
 - **Last call:** Rhonda rings the bell at 11:45pm.
@@ -24,9 +28,9 @@ Not built yet: Rewind Night and the idle loop.
 | Button | In the bar | Songbook | On stage |
 |---|---|---|---|
 | Arrows | Look around | Up/down the page, left/right across and to turn pages, up to the tabs | Left/right: words earlier or later |
-| OK | Choose | Fill in a slip | Pause |
+| OK | Choose | Fill in a slip | Pause (between singers: start now) |
 | Back | Step outside | Close the book | Stop the song |
-| Red | | | Stop the song |
+| Red | | | Stop the song (between singers: skip that slip) |
 | Yellow | Up next (the queue) | Up next | |
 | Blue | Sounds on/off | Sounds on/off | |
 | Rewind / Fast-forward | | | Skip 10 seconds |
@@ -109,4 +113,4 @@ The lyric timings match the original record. "With the band" plays that record, 
 - `app/index.html`: the loader TizenBrew opens. It shows the sign while it fetches the bar and keeps the last good copy if an update fails.
 - `release.json`: which release the TVs run.
 - `package.json`: the app name and remote buttons for TizenBrew.
-- `src/`: the pieces `bar.html` is built from. `python3 src/build.py path/to/friday-night-video/app/store.html` rebuilds it. The build borrows fonts and painting code from the video store so both places look alike. It also bundles two small libraries: tweetnacl-js (public domain) for scrambling slips and qrcode-generator (MIT) for the code.
+- `src/`: the pieces `bar.html` is built from. `python3 src/build.py path/to/friday-night-video/app/store.html` rebuilds it. The build borrows fonts and painting code from the video store so both places look alike. It also bundles two small libraries: tweetnacl-js (public domain) for scrambling slips and qrcode-generator (MIT) for the code, and the Arimo font (SIL Open Font License) for the bitmap lyrics.

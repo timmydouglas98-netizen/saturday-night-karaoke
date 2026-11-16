@@ -293,7 +293,8 @@ input.field:focus { background: #fffbe6; }
   function openSlip(song) {
     slip = { song: song, sent: false };
     var h = '<div class="slip"><div class="k">Request slip</div><div class="song">' + esc(song.t) + '</div><div class="art">' + esc(song.a) + (song.y ? " · " + song.y : "") + "</div>" +
-      '<label for="singer">Who’s singing</label><input class="field" id="singer" maxlength="18" autocomplete="given-name" placeholder="Your name" value="' + esc(lget("snk-phone-name") || "") + '">';
+      '<label for="singer">Who’s singing</label><input class="field" id="singer" maxlength="18" autocomplete="given-name" placeholder="Your name" value="' + esc(lget("snk-phone-name") || "") + '">' +
+      '<label for="partner">Duet partner' + (/d/.test(song.f || "") ? "" : " (optional)") + '</label><input class="field" id="partner" maxlength="18" autocomplete="off" placeholder="' + (/d/.test(song.f || "") ? "Who’s singing with you?" : "Leave empty to sing solo") + '">';
     if (!song.house) h += '<label>The music</label><div class="seg"><button type="button" data-m="back"' + (mode === "back" ? ' class="sel"' : "") + '>Backing track<small>just the music</small></button><button type="button" data-m="band"' + (mode === "band" ? ' class="sel"' : "") + ">With the band<small>the record, vocals and all</small></button></div>";
     h += '<button type="button" class="btn" id="sendSlip">Send it to ' + esc(HOST) + '</button><button type="button" class="btn plain" id="closeSheet">Never mind</button><div class="msg" id="slipMsg" role="status"></div></div>';
     $("sheet").innerHTML = h; $("sheet").hidden = false;
@@ -310,15 +311,16 @@ input.field:focus { background: #fffbe6; }
   function sendSlip() {
     if (!slip || slip.sent) return;
     var name = $("singer").value.replace(/\s+/g, " ").trim().slice(0, 18), btn = $("sendSlip"), msg = $("slipMsg"), s = slip.song;
+    var partner = $("partner") ? $("partner").value.replace(/\s+/g, " ").trim().slice(0, 18) : "", both = partner ? name + " & " + partner : name;
     if (!name) { msg.textContent = "Put a name on the slip so " + HOST + " can call you up."; $("singer").focus(); return; }
     lset("snk-phone-name", name); slip.sent = true; btn.disabled = true; btn.textContent = "Handing it over…"; msg.textContent = "";
     var mine = slip;
-    ask({ t: "req", singer: name, mode: mode, song: { t: s.t, a: s.a, y: s.y || 0, house: !!s.house } }, function (a) {
-      if (slip !== mine) { if (a.ok) toast("Got it, " + name + ". You’re number " + a.pos + " on the list."); return; }
+    ask({ t: "req", singer: name, singer2: partner, mode: mode, song: { t: s.t, a: s.a, y: s.y || 0, house: !!s.house, d: /d/.test(s.f || ""), code: s.code || 0 } }, function (a) {
+      if (slip !== mine) { if (a.ok) toast("Got it, " + both + ". You’re number " + a.pos + " on the list."); return; }
       if (!a.ok) { slip.sent = false; btn.disabled = false; btn.textContent = "Send it to " + HOST; msg.textContent = WHY[a.why] || WHY.bad; return; }
       btn.textContent = "On the list";
       var st = document.createElement("div"); st.className = "stamp"; st.innerHTML = "ON THE LIST<br>No. " + (+a.pos || 1); $("sheet").querySelector(".slip").appendChild(st);
-      setTimeout(function () { if (slip === mine) closeSheet(); toast("Got it, " + name + ". You’re number " + (+a.pos || 1) + " on the list."); }, 1500);
+      setTimeout(function () { if (slip === mine) closeSheet(); toast("Got it, " + both + ". You’re number " + (+a.pos || 1) + " on the list."); }, 1500);
     });
   }
 

@@ -1,4 +1,4 @@
-  var APP_VERSION = "0.2.2", APP_DATE = "16 Nov 2026";
+  var APP_VERSION = "0.4.0", APP_DATE = "16 Nov 2026";
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function clip(s, n) { s = String(s || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
@@ -16,6 +16,17 @@
   if (!Array.isArray(prefs.singers)) prefs.singers = [];
   if (typeof prefs.ytKey !== "string") prefs.ytKey = "";
   if (typeof prefs.phone !== "boolean") prefs.phone = true;
+  // the lights: a dimmer over the whole screen, for evenings when the TV is the brightest thing in the room
+  var LIGHTS = {
+    evening: { n: "Dim from 8pm to 6am", next: "dim", lvl: function () { var h = new Date().getHours(); return h >= 20 || h < 6 ? 0.3 : 0; } },
+    dim: { n: "Dim", next: "dimmer", lvl: function () { return 0.3; } },
+    dimmer: { n: "Dimmer", next: "full", lvl: function () { return 0.48; } },
+    full: { n: "Bright", next: "evening", lvl: function () { return 0; } }
+  };
+  if (!LIGHTS[prefs.lights]) prefs.lights = "evening";
+  if (typeof prefs.fair !== "boolean") prefs.fair = true;
+  if (prefs.screen !== "classic") prefs.screen = "window";
+  function applyLights() { var el = document.getElementById("dimmer"); if (el) el.style.opacity = String(LIGHTS[prefs.lights].lvl()); }
   function savePrefs() { store.set("snk-prefs", prefs); }
   function fnvName() { var p = store.get("fnv-prefs", null); return p && typeof p.storeName === "string" && p.storeName.trim() ? p.storeName.trim().slice(0, 40) : "Friday Night Video"; }
   var wall = store.get("snk-wall", []), songMemo = store.get("snk-songs", {}), slipNo = store.get("snk-slipno", 141);
@@ -59,6 +70,7 @@
     else if (kind === "stamp") { burst(0.07, "lowpass", 900, 0.6); tone(150, 0, 0.12, 0.15, "triangle"); }
     else if (kind === "close") burst(0.05, "bandpass", 800, 0.16);
     else if (kind === "score") { tone(880, 0, 0.08, 0.05, "square"); }
+    else if (kind === "pip") { tone(1320, 0, 0.14, 0.06, "square"); }
     else if (kind === "ta-da") { [523, 659, 784, 1047].forEach(function (n, i) { tone(n, i * 0.09, 0.5, 0.05, "triangle"); }); }
     else if (kind === "applause") {
       var s = ac.createBufferSource(); s.buffer = noise(ac); s.loop = true;
@@ -336,9 +348,43 @@
   }
 
   // ---------- request slips and the queue ----------
+  function who(q) { return q.singer2 ? q.singer + " & " + q.singer2 : q.singer; }
+  function slipNames(x) { return [x.singer, x.singer2].filter(function (n) { return n && n !== "Guest"; }).map(function (n) { return n.toLowerCase(); }); }
+  // fair turns: a new slip goes in after everyone else's slip of the same round, so nobody sings twice before
+  // everyone waiting has had a go. Whoever is on stage now counts as having had this round.
+  function addToQueue(q) {
+    var mine = slipNames(q), at = queue.length;
+    if (prefs.fair && mine.length) {
+      var seen = {};
+      if (S && S.q) slipNames(S.q).forEach(function (n) { seen[n] = 1; });
+      var rounds = queue.map(function (x) { var r = 0, ns = slipNames(x); ns.forEach(function (n) { r = Math.max(r, seen[n] || 0); }); ns.forEach(function (n) { seen[n] = (seen[n] || 0) + 1; }); return r; });
+      var myRound = 0; mine.forEach(function (n) { myRound = Math.max(myRound, seen[n] || 0); });
+      for (var i = INT ? 1 : 0; i < queue.length; i++) if (rounds[i] > myRound) { at = i; break; }
+    }
+    queue.splice(at, 0, q);
+    prefetchSoon();
+    return at + 1;
+  }
+  // no waiting between singers: the next song's words and music are found while the current one plays
+  var prep = {}, prefT = null;
+  function prepKey(q) { return songKey(q.song) + "|" + q.mode; }
+  function prepare(q) {
+    if (q.song.house) return Promise.resolve({ lyr: houseLyrics() });
+    var k = prepKey(q), c = prep[k];
+    if (c && Date.now() - c.t < 3 * 3600000) return c.p;
+    var pr = findLyrics(q.song).then(function (lyr) {
+      if (!lyr) { var e = new Error("nolyrics"); e.kind = "nolyrics"; throw e; }
+      return findVideo(q.song, q.mode, lyr.dur).then(function (v) { if (!v.length) { var e2 = new Error("novideo"); e2.kind = "novideo"; throw e2; } return { lyr: lyr, vids: v }; });
+    });
+    prep[k] = { t: Date.now(), p: pr };
+    pr.catch(function () { if (prep[k] && prep[k].p === pr) delete prep[k]; });
+    return pr;
+  }
+  function prefetchSoon() { clearTimeout(prefT); prefT = setTimeout(function () { var q = queue[0]; if (q && !q.song.house && prefs.ytKey) prepare(q).catch(function () {}); }, 1500); }
   var draft = null;
   function openSlip(song) {
-    draft = { song: song, singer: draft && draft.singer || prefs.singers[0] || "Guest", mode: prefs.mode || "back" };
+    var s1 = draft && draft.singer || prefs.singers[0] || "Guest";
+    draft = { song: song, singer: s1, mode: prefs.mode || "back", duet: /d/.test(song.f || ""), singer2: prefs.singers.filter(function (n) { return n !== s1; })[0] || "Guest" };
     slipNo++; store.set("snk-slipno", slipNo);
     drawSlip("hand");
   }
@@ -346,31 +392,37 @@
     var names = prefs.singers.slice(0, 7); if (names.indexOf("Guest") === -1) names.push("Guest");
     var h = '<span class="no">No. ' + ("0000" + slipNo).slice(-4) + '</span><div class="k">Request slip</div><div class="song">' + esc(draft.song.t) + '</div><div class="art">' + esc(draft.song.a) + (draft.song.y ? " · " + draft.song.y : "") + "</div>";
     h += '<div class="row"><label>Who’s singing</label>' + names.map(function (n) { return '<span class="chip f' + (n === draft.singer ? " sel" : "") + '" data-act="singer" data-n="' + esc(n) + '">' + esc(n) + "</span>"; }).join("") + '<span class="chip f" data-act="newsinger">+ New name</span></div>';
+    h += '<div class="row"><label>Solo or duet</label><span class="chip f' + (!draft.duet ? " sel" : "") + '" data-act="duet" data-d="0">Solo</span><span class="chip f' + (draft.duet ? " sel" : "") + '" data-act="duet" data-d="1">Duet<small>two singers, two colours</small></span></div>';
+    if (draft.duet) h += '<div class="row"><label>Singing with</label>' + names.filter(function (n) { return n !== draft.singer || n === "Guest"; }).map(function (n) { return '<span class="chip f' + (n === draft.singer2 ? " sel" : "") + '" data-act="partner" data-n="' + esc(n) + '">' + esc(n) + "</span>"; }).join("") + '<span class="chip f" data-act="newpartner">+ New name</span></div>';
     if (!draft.song.house) h += '<div class="row"><label>The music</label><span class="chip f' + (draft.mode === "back" ? " sel" : "") + '" data-act="mode" data-m="back">Backing track<small>just the music</small></span><span class="chip f' + (draft.mode === "band" ? " sel" : "") + '" data-act="mode" data-m="band">With the band<small>the record, vocals and all</small></span></div>';
     h += '<div class="btns"><span class="btn f" data-act="hand" data-k="hand">Hand it to ' + esc(HOST) + '</span><span class="btn plain f" data-act="close">Never mind</span></div>';
     openModal(h, null, "slip");
     var f = focus === "hand" ? $("modal").querySelector('[data-k="hand"]') : focus; if (typeof f === "string") f = $("modal").querySelector(f);
     if (f) { var c = cur(); if (c) c.classList.remove("on"); f.classList.add("on"); }
   }
+  ACT.duet = function (el) { draft.duet = el.getAttribute("data-d") === "1"; drawSlip('[data-act="duet"][data-d="' + (draft.duet ? 1 : 0) + '"]'); };
+  ACT.partner = function (el) { draft.singer2 = el.getAttribute("data-n"); drawSlip('[data-act="partner"][data-n="' + draft.singer2.replace(/"/g, '\\"') + '"]'); };
+  ACT.newpartner = function () { openBoard({ label: "Who are they singing with?", max: 18, done: function (v) { var n = addSinger(v); if (n) draft.singer2 = n; drawSlip("hand"); } }); };
   ACT.singer = function (el) { draft.singer = el.getAttribute("data-n"); drawSlip('[data-n="' + draft.singer.replace(/"/g, '\\"') + '"]'); };
   ACT.mode = function (el) { draft.mode = el.getAttribute("data-m"); prefs.mode = draft.mode; savePrefs(); drawSlip('[data-m="' + draft.mode + '"]'); };
   function addSinger(n) { n = n.slice(0, 18); if (!n) return ""; prefs.singers = [n].concat(prefs.singers.filter(function (x) { return x.toLowerCase() !== n.toLowerCase(); })).slice(0, 12); savePrefs(); return n; }
   ACT.newsinger = function () { openBoard({ label: "Name for the slip", max: 18, done: function (v) { var n = addSinger(v); if (n) draft.singer = n; drawSlip("hand"); } }); };
   ACT.hand = function () {
     var q = { song: draft.song, singer: draft.singer, mode: draft.song.house ? "house" : draft.mode };
+    if (draft.duet) q.singer2 = draft.singer2 && (draft.singer2 !== draft.singer || draft.singer2 === "Guest") ? draft.singer2 : "Guest";
     if (draft.singer !== "Guest") addSinger(draft.singer);
-    queue.push(q); closeModal(); sfx("stamp");
-    if (queue.length === 1 && !S) {
-      openModal('<div class="k">' + esc(HOST) + ' reads the slip</div><h3>“' + esc(q.singer) + ', you’re up!”</h3><p>' + esc(q.song.t) + " — " + esc(q.song.a) + '</p><div class="btns"><span class="btn f" data-act="takestage">Take the stage</span><span class="btn plain f" data-act="close">Pick another first</span></div>', refresh);
-    } else { say("Got it, " + q.singer + ". You're number " + queue.length + " on the list."); refresh(); }
+    var pos = addToQueue(q); closeModal(); sfx("stamp");
+    if (queue.length === 1 && !S && !INT) {
+      openModal('<div class="k">' + esc(HOST) + ' reads the slip</div><h3>“' + esc(who(q)) + ', you’re up!”</h3><p>' + esc(q.song.t) + " — " + esc(q.song.a) + '</p><div class="btns"><span class="btn f" data-act="takestage">Take the stage</span><span class="btn plain f" data-act="close">Pick another first</span></div>', refresh);
+    } else { say("Got it, " + who(q) + ". You're number " + pos + " on the list." + (pos < queue.length && prefs.fair ? " Fair's fair." : "")); refresh(); }
   };
   ACT.takestage = function () { closeModal(); startNext(); };
   function refresh() { if (SC === "bar") paintBar(); }
   function openBoardList(focusI) {
     var h = '<div class="k">The request board</div><h3>Up next</h3>';
     if (!queue.length) h += "<p>Nobody's on the list. Open the songbook, pick a song and hand " + esc(HOST) + " the slip.</p>";
-    queue.forEach(function (q, i) { h += '<div class="qrow f" data-act="qrow" data-i="' + i + '"><b>' + (i + 1) + "</b>" + esc(q.singer) + "<small>" + esc(q.song.t) + " — " + esc(q.song.a) + "</small></div>"; });
-    h += '<div class="btns">' + (queue.length ? '<span class="btn f" data-act="takestage">Start with ' + esc(clip(queue[0].singer, 14)) + "</span>" : "") + '<span class="btn plain f" data-act="close">Back</span></div>' + (queue.length ? '<p class="sm">OK on a slip takes it off the board.</p>' : "");
+    queue.forEach(function (q, i) { h += '<div class="qrow f" data-act="qrow" data-i="' + i + '"><b>' + (i + 1) + "</b>" + esc(who(q)) + "<small>" + esc(q.song.t) + " — " + esc(q.song.a) + "</small></div>"; });
+    h += '<div class="btns">' + (queue.length ? '<span class="btn f" data-act="takestage">Start with ' + esc(clip(who(queue[0]), 18)) + "</span>" : "") + '<span class="btn plain f" data-act="close">Back</span></div>' + (queue.length ? '<p class="sm">OK on a slip takes it off the board.</p>' : "");
     openModal(h, refresh);
     if (focusI != null) { var rows = $("modal").querySelectorAll(".qrow"), el = rows[Math.min(focusI, rows.length - 1)]; if (el) { var c = cur(); if (c) c.classList.remove("on"); el.classList.add("on"); } }
   }
@@ -399,8 +451,8 @@
   function phoneCount() { var n = 0, now = Date.now(); for (var k in phones) if (now - phones[k] < 4 * 3600000) n++; return n; }
   function toPhones(obj) { if (line) relaySend(topicPh(), obj, pkeyBytes).catch(function () {}); }
   function stateObj() {
-    return { t: "state", bar: prefs.barName, now: S && !S.loading ? { s: S.q.singer, t: S.q.song.t, a: S.q.song.a } : null,
-      q: queue.slice(0, 8).map(function (q) { return { s: q.singer, t: clip(q.song.t, 60), a: clip(q.song.a, 40) }; }), n: queue.length, key: !!prefs.ytKey };
+    return { t: "state", bar: prefs.barName, now: S && !S.loading ? { s: who(S.q), t: S.q.song.t, a: S.q.song.a } : null,
+      q: queue.slice(0, 8).map(function (q) { return { s: who(q), t: clip(q.song.t, 60), a: clip(q.song.a, 40) }; }), n: queue.length, key: !!prefs.ytKey };
   }
   // phones hear about the queue only when it changes, and only if a phone has said hello tonight
   function sendState(force) {
@@ -418,9 +470,11 @@
       var id = str(m.id, 24); if (!id || seenReq[id]) return; seenReq[id] = 1;
       var sg = m.song && typeof m.song === "object" ? m.song : {}, t = str(sg.t, 120), a = str(sg.a, 120), singer = str(m.singer, 18) || "Guest";
       if (!t || queue.length >= 40) { toPhones({ t: "ack", id: id, ok: false, why: t ? "full" : "bad" }); return; }
-      var song = sg.house === true ? HOUSE_SONG : { t: t, a: a || "Unknown", y: +sg.y > 1900 && +sg.y < 2100 ? Math.floor(+sg.y) : 0, f: "" };
-      queue.push({ song: song, singer: singer, mode: song.house ? "house" : m.mode === "band" ? "band" : "back", phone: true });
-      toPhones({ t: "ack", id: id, ok: true, pos: queue.length });
+      var song = sg.house === true ? HOUSE_SONG : { t: t, a: a || "Unknown", y: +sg.y > 1900 && +sg.y < 2100 ? Math.floor(+sg.y) : 0, f: sg.d === true ? "d" : "", code: +sg.code > 999 && +sg.code < 10000 ? Math.floor(+sg.code) : 0 };
+      var pq = { song: song, singer: singer, mode: song.house ? "house" : m.mode === "band" ? "band" : "back", phone: true }, s2 = str(m.singer2, 18);
+      if (s2) { pq.singer2 = s2; singer = who(pq); }
+      var ppos = addToQueue(pq);
+      toPhones({ t: "ack", id: id, ok: true, pos: ppos });
       sfx("bell");
       if (SC === "sing" && S) flashOsd("NEW SLIP: " + singer.toUpperCase() + " — " + clip(song.t, 28).toUpperCase(), 5000);
       else say(singer + " sent a slip from their phone: " + song.t + ".", HOST, 5000);
@@ -475,16 +529,22 @@
     var h = '<div class="k">' + esc(HOST) + " leans over</div><h3>What can I get you?</h3>";
     h += '<div class="opt f" data-act="d-name">The name on the sign<span>' + esc(prefs.barName) + "</span></div>";
     h += '<div class="opt f" data-act="d-sound">Bar sounds<span>' + (prefs.sound ? "On" : "Off") + "</span></div>";
+    h += '<div class="opt f" data-act="d-lights">Lights<span>' + LIGHTS[prefs.lights].n + "</span></div>";
+    h += '<div class="opt f" data-act="d-screen">Stage screen<span>' + (prefs.screen === "classic" ? "Classic blue" : "Rainy window") + "</span></div>";
     h += '<div class="opt f" data-act="d-big">Words on the stage screen<span>' + (prefs.big ? "Extra big" : "Big") + "</span></div>";
+    h += '<div class="opt f" data-act="d-fair">Turns<span>' + (prefs.fair ? "Fair: everyone gets a go first" : "In the order slips arrive") + "</span></div>";
     h += '<div class="opt f" data-act="d-key">Jukebox key<span>' + (prefs.ytKey ? "Set (ends " + esc(prefs.ytKey.slice(-4)) + ")" : "Not set — only the house song plays") + "</span></div>";
     h += '<div class="opt f" data-act="d-house">Try the house song<span>No set-up needed</span></div>';
     h += '<div class="opt f" data-act="d-names">Singers’ names<span>' + (prefs.singers.length ? esc(prefs.singers.join(", ")) : "None saved") + "</span></div>";
     h += '<div class="btns"><span class="btn plain f" data-act="close">Back</span></div><p class="sm">Version ' + APP_VERSION + " · " + APP_DATE + "</p>";
-    openModal(h, refresh);
+    openModal(h, refresh, "desk");
     if (focus) refocus(focus);
   }
   ACT["d-name"] = function () { openBoard({ label: "The name on the sign", value: prefs.barName, max: 32, done: function (v) { if (v) { prefs.barName = v; savePrefs(); outPainted = 0; } openDesk("d-name"); }, cancel: function () { openDesk("d-name"); } }); };
   ACT["d-sound"] = function () { toggleSound(); openDesk("d-sound"); };
+  ACT["d-screen"] = function () { prefs.screen = prefs.screen === "classic" ? "window" : "classic"; savePrefs(); sfx("tick"); openDesk("d-screen"); };
+  ACT["d-fair"] = function () { prefs.fair = !prefs.fair; savePrefs(); sfx("tick"); openDesk("d-fair"); };
+  ACT["d-lights"] = function () { prefs.lights = LIGHTS[prefs.lights].next; savePrefs(); applyLights(); sfx("tick"); openDesk("d-lights"); };
   ACT["d-big"] = function () { prefs.big = !prefs.big; savePrefs(); $("stage").classList.toggle("bigly", !!prefs.big); openDesk("d-big"); };
   ACT["d-key"] = function () {
     openModal('<div class="k">The jukebox</div><h3>The jukebox key</h3><p>The words come from LRCLIB, a free lyrics library. The music plays from YouTube, and YouTube asks every app that searches it for a free key from Google.</p><p>The set-up guide that came with the bar (README, “The jukebox key”) walks through getting one. It takes about ten minutes, once. The key is kept on this TV only.</p>' +
@@ -707,6 +767,7 @@
   // ---------- on stage ----------
   var winPainted = false, tickT = null, osdT = null;
   function paintWindow() {
+    $("scSing").classList.toggle("classic", prefs.screen === "classic");
     if (!winPainted) { winPainted = true; svgToCanvas(windowPlateSVG(), $("wPlate"), yes, function () { texturize($("wPlate"), .3, false); }); }
     $("wCels").innerHTML = windowCelsSVG(prefs.barName);
   }
@@ -718,20 +779,16 @@
       go("sing"); paintWindow();
       ["lyNow", "lyNext", "lyDots", "osd", "osdR"].forEach(function (id) { $(id).innerHTML = ""; }); $("lyCard").hidden = true; $("lyBreak").hidden = true;
       var c = $("cue"); c.hidden = false; c.classList.remove("open");
-      cue(q.singer + " — you're up", q.song.t, HOST + " is finding the words…");
+      cue(who(q) + " — you're up", q.song.t, HOST + " is finding the words…");
       hint("sgHint", [["", "OK  pause"], ["", "◄ ►  words earlier / later"], ["r", "Stop the song"]]);
       S = { q: q, lines: [], ni: -2, off: 0, vids: [], vi: 0, loading: true, id: Date.now() };
-      var mine = S.id, load = q.song.house ? Promise.resolve({ lyr: houseLyrics() }) :
-        findLyrics(q.song).then(function (lyr) {
-          if (!lyr) { var e = new Error("nolyrics"); e.kind = "nolyrics"; throw e; }
-          if (S && S.id === mine) cue(null, null, HOST + " is cueing up the music…");
-          return findVideo(q.song, q.mode, lyr.dur).then(function (v) { if (!v.length) { var e2 = new Error("novideo"); e2.kind = "novideo"; throw e2; } return { lyr: lyr, vids: v }; });
-        });
+      var mine = S.id, load = prepare(q);
       load.then(function (d) { if (S && S.id === mine) beginSong(d); }, function (e) { if (S && S.id === mine) songFailed(e && e.kind || "net"); });
     });
   }
   function beginSong(d) {
     S.lines = d.lyr.lines; S.synced = d.lyr.synced; S.dur = d.lyr.dur; S.vids = d.vids || [];
+    S.duet = !!S.q.singer2; if (S.duet) assignParts(S.lines);
     S.why = []; S.wrapNote = "";
     var h = { playing: onPlaying, ended: function () { finishSong(true); }, error: function (code) { if (!S) return; if (!S.loading) return finishSong(false); S.why.push(code + (S.player && S.player.kind === "yt" ? (S.player.wrapped ? (S.player.wrapOK ? "" : "?") : "!") : "")); if (S.player) S.player.stop(); S.vi++; tryVideo(); } };
     S.h = h;
@@ -745,12 +802,29 @@
     cue(null, null, HOST + " is cueing up tape " + (S.vi + 1) + " of " + S.vids.length + "…");
     S.player = ytPlayer(v.id, S.h, S.dur);
   }
+  // duets: any line that comes round more than once (the chorus) is sung together; the lines in between take turns,
+  // the first stretch to the first singer, the next to the second, and so on (four lines at most per turn)
+  function assignParts(L) {
+    var cnt = {}, turn = 1, run = 0;
+    L.forEach(function (l) { var k = norm(l.text); cnt[k] = (cnt[k] || 0) + 1; });
+    L.forEach(function (l, i) {
+      var shared = cnt[norm(l.text)] > 1 && norm(l.text).length > 3, gap = i && l.t - L[i - 1].end >= 2.2;
+      if (shared) { l.part = 3; if (run) { turn = turn === 1 ? 2 : 1; run = 0; } return; }
+      if (run && (run >= 4 || gap)) { turn = turn === 1 ? 2 : 1; run = 0; }
+      l.part = turn; run++;
+    });
+  }
+  function partLabel(l) {
+    if (!S || !S.duet || !l) return null;
+    var pt = l.part || 3;
+    return { text: (pt === 1 ? S.q.singer : pt === 2 ? S.q.singer2 : S.q.singer + " & " + S.q.singer2).toUpperCase(), col: pt === 1 ? PIXCOL.p1 : pt === 2 ? PIXCOL.p2 : PIXCOL.both };
+  }
   function onPlaying() {
     if (!S || !S.loading) return;
-    S.loading = false;
+    S.loading = false; prefetchSoon();
     if (S.player.kind === "yt") { var v = S.vids[S.vi]; songMemo[memoKey()] = { v: v.id, d: v.d, off: S.off }; store.set("snk-songs", songMemo); }
     var c = $("cue"); c.classList.add("open"); setTimeout(function () { c.hidden = true; }, 820);
-    $("osdR").innerHTML = esc(S.q.singer.toUpperCase()) + "<br>♪ " + (S.q.mode === "band" ? "WITH THE BAND" : S.q.mode === "house" ? "HOUSE BAND" : "BACKING TRACK");
+    $("osdR").innerHTML = esc(who(S.q).toUpperCase()) + "<br>♪ " + (S.q.mode === "band" ? "WITH THE BAND" : S.q.mode === "house" ? "HOUSE BAND" : "BACKING TRACK");
     if (S.player.blind) flashOsd("PLAYING BY EAR — ◄ ► TO LINE THE WORDS UP", 9000);
     else if (!S.synced) flashOsd("WORDS ONLY — ◄ ► TO KEEP THEM IN STEP", 7000); else if (S.drift > 6) flashOsd("TIMING MAY WANDER — ◄ ► TO NUDGE", 7000);
     clearInterval(tickT); tickT = setInterval(tick, 42);
@@ -789,7 +863,8 @@
   }
   var lastFailed = null;
   ACT.otherway = function () { var q = lastFailed; closeModal(); if (!q) return; queue.unshift({ song: q.song, singer: q.singer, mode: q.mode === "band" ? "back" : "band" }); startNext(); };
-  function stopSong() { clearInterval(tickT); tickT = null; if (S && S.player) S.player.stop(); S = null; }
+  var pix = null;
+  function stopSong() { clearInterval(tickT); tickT = null; if (pix) pix.setPage(null); if (S && S.player) S.player.stop(); S = null; }
   function flashOsd(t, ms) { S && (S.flash = t); clearTimeout(osdT); osdT = setTimeout(function () { if (S) S.flash = ""; }, ms || 2200); }
   function nudge(d) {
     if (!S || S.loading) return;
@@ -803,31 +878,17 @@
     var p = S.player, t = p.time(), tl = t - S.off, L = S.lines, n = L.length, ni = S.ni < 0 ? 0 : S.ni;
     while (ni < n && L[ni].end <= tl) ni++;
     while (ni > 0 && L[ni - 1].end > tl) ni--;
-    var now = L[ni], nowEl = $("lyNow");
-    if (ni !== S.ni) {
-      S.ni = ni;
-      nowEl.className = now ? (now.text.length > 44 ? "sm" : now.text.length > 30 ? "md" : "") + " in" : "";
-      nowEl.innerHTML = now ? lineHTMLSing(now) : "";
-      S.wEls = nowEl.querySelectorAll(".w");
-      $("lyNext").textContent = L[ni + 1] ? L[ni + 1].text : "";
-    }
+    var now = L[ni];
+    if (ni !== S.ni) { S.ni = ni; var lab = partLabel(now); pix.setPage(now, L[ni + 1], !!prefs.big, lab, lab ? lab.col : null); }
     var wait = now ? now.t - tl : 0, card = $("lyCard");
     // the title card over the intro
     var showCard = ni === 0 && now && wait > 4.5 && t < 30;
-    if (showCard !== !card.hidden) { card.hidden = !showCard; if (showCard) card.innerHTML = '<div class="k">Now singing · ' + esc(S.q.singer) + '</div><div class="t">' + esc(S.q.song.t) + '</div><div class="s">' + esc(S.q.song.a) + "</div>"; }
+    if (showCard !== !card.hidden) { card.hidden = !showCard; if (showCard) card.innerHTML = '<div class="k">Now singing · ' + esc(who(S.q)) + '</div><div class="t">' + esc(S.q.song.t) + '</div><div class="s">' + esc(S.q.song.a) + "</div>"; }
     // the count-in: four lamps, one goes out each second
-    var dots = "";
-    if (now && wait > 0 && wait <= 4 && (ni === 0 || now.t - L[ni - 1].end >= 4)) { var lit = Math.ceil(wait); for (var i = 0; i < 4; i++) dots += '<i class="' + (i < lit ? "lit" : "") + '"></i>'; }
-    if (S.dots !== dots) { S.dots = dots; $("lyDots").innerHTML = dots; }
+    var lit = now && wait > 0 && wait <= 4 && (ni === 0 || now.t - L[ni - 1].end >= 4) ? Math.ceil(wait) : -1;
     var brk = !!(now && ni > 0 && wait > 4 && now.t - L[ni - 1].end >= 9) || (!now && n > 0 && S.dur - tl > 6);
     if (brk !== !$("lyBreak").hidden) $("lyBreak").hidden = !brk;
-    nowEl.style.opacity = wait > 4.5 ? ".0" : wait > 0 ? ".78" : "1";
-    $("lyNext").style.visibility = wait > 4.5 ? "hidden" : "visible";
-    if (now && S.wEls) for (var k = 0; k < now.words.length; k++) {
-      var w = now.words[k], el = S.wEls[k]; if (!el) break;
-      var f = tl >= w.b ? 1 : tl <= w.a ? 0 : (tl - w.a) / (w.b - w.a);
-      if (el._f !== f) { el._f = f; if (f === 1) el.classList.add("done"); else el.classList.remove("done"); el.firstElementChild.style.width = f === 1 ? "0" : (f * 100).toFixed(1) + "%"; }
-    }
+    pix.draw(tl, lit, !!now && wait <= 4.5);
     var osd = (S.flash ? S.flash + "\n" : "") + (p.playing() ? "▶ PLAY   " : "❚❚ PAUSE  ") + mmss(t) + (S.dur ? " / " + mmss(p.dur || S.dur) : "");
     if (S.osd !== osd) { S.osd = osd; $("osd").textContent = osd; }
   }
@@ -835,21 +896,60 @@
   function finishSong(natural) {
     if (!S) return;
     var q = S.q, sung = S.player ? S.player.time() : 0, enough = natural || sung > 45 || (S.dur && sung > S.dur * 0.5);
-    stopSong(); $("lyNow").innerHTML = ""; $("lyNext").textContent = ""; $("lyDots").innerHTML = ""; $("lyBreak").hidden = true; $("lyCard").hidden = true; $("osd").textContent = "";
-    if (!enough) { fadeThen(function () { showBar(); say("No shame in it, " + q.singer + ". Come back up whenever you like."); }); return; }
+    stopSong(); pix.setPage(null); $("lyNow").innerHTML = ""; $("lyNext").textContent = ""; $("lyDots").innerHTML = ""; $("lyBreak").hidden = true; $("lyCard").hidden = true; $("osd").textContent = "";
+    if (!enough) { fadeThen(function () { showBar(); say("No shame in it, " + who(q) + ". Come back up whenever you like."); }); return; }
     var v = pick(VERDICTS), score = v[0] + Math.floor(Math.random() * 2);
-    wall.unshift({ who: q.singer, t: q.song.t, a: q.song.a, s: score, d: Date.now() }); wall = wall.slice(0, 40); store.set("snk-wall", wall);
+    wall.unshift({ who: who(q), t: q.song.t, a: q.song.a, s: score, d: Date.now() }); wall = wall.slice(0, 40); store.set("snk-wall", wall);
     audioReady(); sfx("applause");
     var nx = queue[0];
-    openModal('<div class="k">The machine has spoken · ' + esc(q.singer) + '</div><div class="score" id="scoreN">00</div><div class="verdict">' + esc(v[1].replace("Rhonda", HOST)) + '</div><p class="sm" style="text-align:center">' + esc(q.song.t) + " — " + esc(q.song.a) + " · your polaroid's going on the wall</p>" +
-      '<div class="btns" style="text-align:center">' + (nx ? '<span class="btn f" data-act="nextup">Next: ' + esc(clip(nx.singer, 12)) + " — " + esc(clip(nx.song.t, 20)) + "</span>" : "") + '<span class="btn ' + (nx ? "plain " : "") + 'f" data-act="tobar">Back to the bar</span><span class="btn plain f" data-act="again">Sing it again</span></div>', function () { ACT.tobar(); }, "receipt");
+    openModal('<div class="k">The machine has spoken · ' + esc(who(q)) + '</div><div class="score" id="scoreN">00</div><div class="verdict">' + esc(v[1].replace("Rhonda", HOST)) + '</div><p class="sm" style="text-align:center">' + esc(q.song.t) + " — " + esc(q.song.a) + " · your polaroid's going on the wall</p>" +
+      '<div class="btns" style="text-align:center">' + (nx ? '<span class="btn f" data-act="nextup">Next: ' + esc(clip(who(nx), 16)) + " — " + esc(clip(nx.song.t, 20)) + "</span>" : "") + '<span class="btn ' + (nx ? "plain " : "") + 'f" data-act="tobar">Back to the bar</span><span class="btn plain f" data-act="again">Sing it again</span></div>', function () { ACT.tobar(); }, "receipt");
     lastSung = q;
-    var n = 0, el = $("scoreN"), iv = setInterval(function () { n += Math.ceil((score - n) / 6) || 1; if (n >= score) { n = score; clearInterval(iv); sfx("ta-da"); } else sfx("score"); if (el) el.textContent = n; }, 83);
+    var n = 0, el = $("scoreN"), iv = setInterval(function () {
+      n += Math.ceil((score - n) / 6) || 1;
+      if (n >= score) {
+        n = score; clearInterval(iv); sfx("ta-da");
+        // with someone waiting, the countdown to the next singer starts on its own after a moment
+        clearTimeout(autoNext); if (queue.length) autoNext = setTimeout(function () { if ($("scoreN") && !$("modal").hidden) { closeModal(); startIntermission(); } }, 7000);
+      } else sfx("score");
+      if (el) el.textContent = n;
+    }, 83);
   }
   var lastSung = null;
-  ACT.nextup = function () { closeModal(); startNext(); };
-  ACT.tobar = function () { closeModal(); fadeThen(showBar); };
-  ACT.again = function () { closeModal(); if (lastSung) { queue.unshift(lastSung); startNext(); } };
+  var autoNext = null;
+  ACT.nextup = function () { clearTimeout(autoNext); closeModal(); startIntermission(); };
+  ACT.tobar = function () { clearTimeout(autoNext); closeModal(); fadeThen(showBar); };
+  ACT.again = function () { clearTimeout(autoNext); closeModal(); if (lastSung) { queue.unshift(lastSung); startNext(); } };
+
+  // ---------- between singers: the old machine's countdown, fifteen seconds, skippable ----------
+  var INT = null;
+  function clearScreen() { var c = $("lyCv"); c.getContext("2d").clearRect(0, 0, c.width, c.height); if (pix) pix.setPage(null); }
+  function startIntermission() {
+    if (!queue.length) { fadeThen(showBar); return; }
+    if (INT) clearInterval(INT.t);
+    go("sing"); paintWindow(); clearScreen();
+    ["osd", "osdR"].forEach(function (id) { $(id).innerHTML = ""; }); $("lyCard").hidden = true; $("lyBreak").hidden = true; $("cue").hidden = true;
+    hint("sgHint", [["", "OK  start now"], ["r", "Skip this slip"], ["", "BACK  to the bar"]]);
+    INT = { left: 15, t: setInterval(intTick, 1000) };
+    drawInt(); prefetchSoon(); sendState(true);
+  }
+  function drawInt() {
+    var q = queue[0]; if (!INT || !q) return;
+    pixCard($("lyCv"), [
+      { t: "NEXT UP", size: 12, col: PIXCOL.dim },
+      { t: who(q).toUpperCase(), size: 25, col: q.singer2 ? PIXCOL.p2 : PIXCOL.sung, gap: 2 },
+      { t: (q.song.code ? q.song.code + "  " : "") + q.song.t, size: 17, col: PIXCOL.cur, gap: 6 },
+      { t: q.song.a, size: 12, col: PIXCOL.next },
+      { t: String(INT.left), size: 30, col: PIXCOL.cur, gap: 26 }
+    ], { left: INT.left, of: 15 });
+  }
+  function intTick() {
+    if (!INT) return;
+    INT.left--;
+    if (INT.left <= 0) { sfx("bell"); endIntermission(true); return; }
+    sfx(INT.left <= 3 ? "pip" : "tick"); drawInt();
+  }
+  function endIntermission(start) { if (!INT) return; clearInterval(INT.t); INT = null; clearScreen(); if (start) startNext(); }
 
   // ---------- the remote ----------
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, OK: 13, BACK: 10009, ESC: 27, BKSP: 8, RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406, PLAY: 415, PAUSE: 19, PP: 10252, STOP: 413, RW: 412, FF: 417, IME_DONE: 65376, IME_CANCEL: 65385 };
@@ -893,6 +993,14 @@
       else if (k === KEY.OK) { sfx("tap"); activate(cur()); }
       else if (k === KEY.YELLOW) openBoardList();
       else if (k === KEY.BACK || k === KEY.ESC) { sfx("close"); showBar(); }
+    } else if (SC === "sing" && INT) {
+      if (k === KEY.OK || k === KEY.PLAY || k === KEY.PP) { sfx("bell"); endIntermission(true); }
+      else if (k === KEY.BACK || k === KEY.ESC || k === KEY.STOP) { endIntermission(false); fadeThen(showBar); }
+      else if (k === KEY.RED) {
+        var gone = queue.shift(); sfx("flip");
+        if (queue.length) { INT.left = 15; drawInt(); flashSay(gone); }
+        else { endIntermission(false); fadeThen(function () { showBar(); say("That's the list done. Who's next?"); }); }
+      }
     } else if (SC === "sing") {
       if (!S) return;
       if (k === KEY.RED || k === KEY.STOP || k === KEY.BACK || k === KEY.ESC) { if (S.loading) { stopSong(); fadeThen(showBar); } else finishSong(false); }
@@ -904,6 +1012,7 @@
       else if (k === KEY.FF) S.player.seek(10);
     }
   }
+  function flashSay(q) { if (q) say(who(q) + "'s slip is off the board.", HOST, 2500); }
   document.addEventListener("keydown", onKey);
   // a mouse or a finger works too, for trying it on a computer or a phone
   document.addEventListener("click", function (e) {
@@ -912,9 +1021,12 @@
     if (el && scope().contains(el)) { var was = cur() === el; setFocus(el, true); if (was || !el.classList.contains("tab")) activate(el); return; }
     if (osk || !$("modal").hidden) return;
     if (SC === "out" && !entering) enterBar();
+    else if (SC === "sing" && INT) endIntermission(true);
     else if (SC === "sing" && S && !S.loading) { if (S.player.playing()) S.player.pause(); else S.player.resume(); }
   });
   window.addEventListener("resize", fit);
+  pix = new PixLyrics($("lyCv"));
+  applyLights(); setInterval(applyLights, 60000);
   try { lineStart(); } catch (e) {}
 
   // ---------- open up ----------
@@ -924,7 +1036,7 @@
   Array.prototype.forEach.call(document.querySelectorAll(".rain.near i"), function (i) { i.style.backgroundImage = dropTile(320, 22, 26, 52, 2.2, .3, .6, 31); });
   Array.prototype.forEach.call(document.querySelectorAll(".rain.far i"), function (i) { i.style.backgroundImage = dropTile(220, 40, 12, 26, 1.4, .22, .5, 57); });
   function open() { showOutside(true); setTimeout(function () { $("fade").classList.remove("on"); }, 350); }
-  try { if (document.fonts && document.fonts.load) { var opened = false, o1 = function () { if (!opened) { opened = true; open(); } }; Promise.all([document.fonts.load("40px Caprasimo"), document.fonts.load("600 20px Oswald"), document.fonts.load("20px VT323")]).then(o1, o1); setTimeout(o1, 2500); } else open(); } catch (e) { open(); }
+  try { if (document.fonts && document.fonts.load) { var opened = false, o1 = function () { if (!opened) { opened = true; open(); } }; Promise.all([document.fonts.load("40px Caprasimo"), document.fonts.load("600 20px Oswald"), document.fonts.load("20px VT323"), document.fonts.load("bold 19px SNKPix")]).then(o1, o1); setTimeout(o1, 2500); } else open(); } catch (e) { open(); }
   setInterval(function () { if (SC === "out") { $("oClock").textContent = clockText(); if (Date.now() - outPainted > 20 * 60000 && !entering) paintOutside(); } else if (SC === "bar" || SC === "book") lastCall(); }, 30000);
   // tell the loader this release opened properly, so it becomes the saved copy on this TV
   setTimeout(function () {
@@ -937,4 +1049,4 @@
       try { sessionStorage.removeItem("snk-next-html"); } catch (e) {}
     } catch (e) {}
   }, 5000);
-  window.__snk = { state: function () { return { sc: SC, queue: queue.length, q: queue.map(function (q) { return q.singer + ":" + q.song.t + ":" + q.mode; }), key: prefs.ytKey ? "set" : "", line: lineUp, link: canPhone() ? phoneLink() : "", song: S ? { loading: S.loading, ni: S.ni, lines: S.lines.length } : null }; } };
+  window.__snk = { add: function (o) { return addToQueue(o); }, state: function () { return { sc: SC, int: INT ? INT.left : null, prep: Object.keys(prep), queue: queue.length, q: queue.map(function (q) { return who(q) + ":" + q.song.t + ":" + q.mode; }), key: prefs.ytKey ? "set" : "", line: lineUp, link: canPhone() ? phoneLink() : "", song: S ? { loading: S.loading, ni: S.ni, lines: S.lines.length } : null }; } };
